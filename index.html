@@ -72,7 +72,13 @@ async function github(path, method="GET", body=null){
         }
     );
 
-    return await r.json();
+    const data = await r.json();
+
+console.log(data);
+
+log(JSON.stringify(data));
+
+return data;
 }
 
 async function start(){
