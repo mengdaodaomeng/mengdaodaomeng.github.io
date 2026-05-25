@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>GitHub WebRTC Chat</title>
+<style>
+body{
+    font-family:sans-serif;
+    max-width:700px;
+    margin:auto;
+    padding:20px;
+}
+#chat{
+    border:1px solid #ccc;
+    height:300px;
+    overflow:auto;
+    padding:10px;
+    margin-bottom:10px;
+}
+input{
+    width:80%;
+    padding:10px;
+}
+button{
+    padding:10px;
+}
+</style>
+</head>
+<body>
+
+<h2>GitHub Issues WebRTC Chat</h2>
+
+<div>
+你的名字：
+<input id="username" value="user">
+<button onclick="start()">开始连接</button>
+</div>
+
+<br>
+
+<div id="chat"></div>
+
+<input id="msg">
+<button onclick="sendMsg()">发送</button>
+
+<script>
+
+let pc;
+let dc;
+
+const OWNER = "你的GitHub用户名";
+const REPO = "webrtc-chat";
+
+function log(t){
+    chat.innerHTML += t + "<br>";
+    chat.scrollTop = chat.scrollHeight;
+}
+
+async function github(path, method="GET", body=null){
+
+    const token = prompt("输入 GitHub Token");
+
+    const r = await fetch(
+        "https://api.github.com" + path,
+        {
+            method,
+            headers:{
+                "Authorization":"Bearer " + token,
+                "Accept":"application/vnd.github+json"
+            },
+            body:body ? JSON.stringify(body) : null
+        }
+    );
+
+    return await r.json();
+}
+
+async function start(){
+
+    pc = new RTCPeerConnection({
+        iceServers:[
+            {
+                urls:"stun:stun.l.google.com:19302"
+            }
+        ]
+    });
+
+    dc = pc.createDataChannel("chat");
+
+    dc.onmessage = e=>{
+        log("对方: " + e.data);
+    };
+
+    dc.onopen = ()=>{
+        log("P2P 已连接");
+    };
+
+    pc.onicecandidate = async e=>{
+
+        if(e.candidate)return;
+
+        const offer = pc.localDescription.sdp;
+
+        await github(
+            `/repos/${OWNER}/${REPO}/issues`,
+            "POST",
+            {
+                title:"offer",
+                body:offer
+            }
+        );
+
+        log("Offer 已上传 GitHub");
+    };
+
+    const offer = await pc.createOffer();
+
+    await pc.setLocalDescription(offer);
+
+    pollAnswer();
+}
+
+async function pollAnswer(){
+
+    setInterval(async ()=>{
+
+        const issues = await github(
+            `/repos/${OWNER}/${REPO}/issues`
+        );
+
+        for(const i of issues){
+
+            if(i.title === "answer"){
+
+                await pc.setRemoteDescription({
+                    type:"answer",
+                    sdp:i.body
+                });
+
+                log("收到 Answer");
+
+            }
+
+        }
+
+    },5000);
+
+}
+
+function sendMsg(){
+
+    const v = msg.value;
+
+    dc.send(v);
+
+    log("我: " + v);
+
+    msg.value = "";
+
+}
+
+</script>
+
+</body>
+  </html>
