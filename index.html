@@ -3,45 +3,65 @@
 <head>
 <meta charset="utf-8">
 <title>GitHub WebRTC Chat</title>
+
 <style>
+
 body{
     font-family:sans-serif;
     max-width:700px;
     margin:auto;
     padding:20px;
 }
+
 #chat{
     border:1px solid #ccc;
-    height:300px;
+    height:350px;
     overflow:auto;
     padding:10px;
+    margin-top:10px;
     margin-bottom:10px;
+    background:#f5f5f5;
 }
+
 input{
-    width:80%;
+    width:70%;
     padding:10px;
+    margin:5px;
 }
+
 button{
     padding:10px;
+    margin:5px;
 }
+
 </style>
+
 </head>
 <body>
 
 <h2>GitHub Issues WebRTC Chat</h2>
 
 <div>
-你的名字：
-<input id="username" value="user">
-<button onclick="start()">开始连接</button>
-</div>
 
-<br>
+<input id="username" value="user">
+
+<button onclick="start()">
+开始连接
+</button>
+
+<button onclick="clearToken()">
+清除缓存
+</button>
+
+</div>
 
 <div id="chat"></div>
 
 <input id="msg">
-<button onclick="sendMsg()">发送</button>
+
+<button onclick="sendMsg()">
+发送
+</button>
 
 <script>
 
@@ -51,39 +71,119 @@ let dc;
 const OWNER = "你的GitHub用户名";
 const REPO = "webrtc-chat";
 
+let GITHUB_TOKEN =
+    localStorage.getItem("github_token") || "";
+
 function log(t){
-    chat.innerHTML += t + "<br>";
-    chat.scrollTop = chat.scrollHeight;
+
+    const div = document.getElementById("chat");
+
+    div.innerHTML += t + "<br>";
+
+    div.scrollTop = div.scrollHeight;
+}
+
+function clearToken(){
+
+    localStorage.removeItem("github_token");
+
+    GITHUB_TOKEN = "";
+
+    log("Token缓存已清除");
+
 }
 
 async function github(path, method="GET", body=null){
 
-    const token = prompt("输入 GitHub Token");
+    if(!GITHUB_TOKEN){
 
-    const r = await fetch(
-        "https://api.github.com" + path,
-        {
-            method,
-            headers:{
-                "Authorization":"Bearer " + token,
-                "Accept":"application/vnd.github+json"
-            },
-            body:body ? JSON.stringify(body) : null
+        GITHUB_TOKEN =
+            prompt("输入 GitHub Token");
+
+        if(!GITHUB_TOKEN){
+
+            log("未输入Token");
+
+            return null;
         }
-    );
 
-    const data = await r.json();
+        localStorage.setItem(
+            "github_token",
+            GITHUB_TOKEN
+        );
+    }
 
-console.log(data);
+    try{
 
-log(JSON.stringify(data));
+        const r = await fetch(
 
-return data;
+            "https://api.github.com" + path,
+
+            {
+                method,
+
+                headers:{
+
+                    "Authorization":
+                        "Bearer " + GITHUB_TOKEN,
+
+                    "Accept":
+                        "application/vnd.github+json"
+                },
+
+                body: body
+                    ? JSON.stringify(body)
+                    : null
+            }
+        );
+
+        const data = await r.json();
+
+        console.log(data);
+
+        if(!r.ok){
+
+            log("GitHub错误: " + data.message);
+
+            if(
+                data.message &&
+                (
+                    data.message.includes("Bad credentials")
+                    ||
+                    data.message.includes("Requires authentication")
+                )
+            ){
+
+                localStorage.removeItem(
+                    "github_token"
+                );
+
+                GITHUB_TOKEN = "";
+
+                log("Token失效，请重新输入");
+            }
+
+            return null;
+        }
+
+        return data;
+
+    }catch(err){
+
+        console.error(err);
+
+        log("网络错误: " + err);
+
+        return null;
+    }
 }
 
 async function start(){
 
+    log("开始创建 WebRTC...");
+
     pc = new RTCPeerConnection({
+
         iceServers:[
             {
                 urls:"stun:stun.l.google.com:19302"
@@ -93,79 +193,86 @@ async function start(){
 
     dc = pc.createDataChannel("chat");
 
-    dc.onmessage = e=>{
-        log("对方: " + e.data);
-    };
-
     dc.onopen = ()=>{
+
         log("P2P 已连接");
+
     };
 
-    pc.onicecandidate = async e=>{
+    dc.onmessage = (e)=>{
 
-        if(e.candidate)return;
+        log("对方: " + e.data);
 
-        const offer = pc.localDescription.sdp;
+    };
 
-        await github(
+    pc.onicecandidate = async (e)=>{
+
+        // ICE 收集结束
+        if(e.candidate) return;
+
+        log("ICE 收集完成");
+
+        const offer =
+            pc.localDescription.sdp;
+
+        log("上传 Offer 到 GitHub...");
+
+        const r = await github(
+
             `/repos/${OWNER}/${REPO}/issues`,
+
             "POST",
+
             {
                 title:"offer",
                 body:offer
             }
         );
 
-        log("Offer 已上传 GitHub");
+        if(r){
+
+            log("Offer 已上传 GitHub");
+
+        }
     };
 
-    const offer = await pc.createOffer();
+    const offer =
+        await pc.createOffer();
 
     await pc.setLocalDescription(offer);
 
-    pollAnswer();
-}
-
-async function pollAnswer(){
-
-    setInterval(async ()=>{
-
-        const issues = await github(
-            `/repos/${OWNER}/${REPO}/issues`
-        );
-
-        for(const i of issues){
-
-            if(i.title === "answer"){
-
-                await pc.setRemoteDescription({
-                    type:"answer",
-                    sdp:i.body
-                });
-
-                log("收到 Answer");
-
-            }
-
-        }
-
-    },5000);
+    log("Offer 已创建");
 
 }
 
 function sendMsg(){
 
-    const v = msg.value;
+    if(!dc){
+
+        log("DataChannel 未建立");
+
+        return;
+    }
+
+    if(dc.readyState !== "open"){
+
+        log("P2P 尚未连接");
+
+        return;
+    }
+
+    const v =
+        document.getElementById("msg").value;
 
     dc.send(v);
 
     log("我: " + v);
 
-    msg.value = "";
+    document.getElementById("msg").value = "";
 
 }
 
 </script>
 
 </body>
-  </html>
+</html>
