@@ -8,7 +8,7 @@
 
 body{
     font-family:sans-serif;
-    max-width:700px;
+    max-width:800px;
     margin:auto;
     padding:20px;
 }
@@ -18,9 +18,9 @@ body{
     height:350px;
     overflow:auto;
     padding:10px;
+    background:#f5f5f5;
     margin-top:10px;
     margin-bottom:10px;
-    background:#f5f5f5;
 }
 
 input{
@@ -43,14 +43,16 @@ button{
 
 <div>
 
-<input id="username" value="user">
+<button onclick="createRoom()">
+创建房间
+</button>
 
-<button onclick="start()">
-开始连接
+<button onclick="joinRoom()">
+加入房间
 </button>
 
 <button onclick="clearToken()">
-清除缓存
+清除Token
 </button>
 
 </div>
@@ -65,18 +67,19 @@ button{
 
 <script>
 
+const OWNER = "你的GitHub用户名";
+const REPO = "webrtc-chat";
+
 let pc;
 let dc;
-
-const OWNER = "mengdaodaomeng";
-const REPO = "mengdaodaomeng.github.io";
 
 let GITHUB_TOKEN =
     localStorage.getItem("github_token") || "";
 
 function log(t){
 
-    const div = document.getElementById("chat");
+    const div =
+        document.getElementById("chat");
 
     div.innerHTML += t + "<br>";
 
@@ -85,12 +88,13 @@ function log(t){
 
 function clearToken(){
 
-    localStorage.removeItem("github_token");
+    localStorage.removeItem(
+        "github_token"
+    );
 
     GITHUB_TOKEN = "";
 
-    log("Token缓存已清除");
-
+    log("Token 已清除");
 }
 
 async function github(path, method="GET", body=null){
@@ -102,7 +106,7 @@ async function github(path, method="GET", body=null){
 
         if(!GITHUB_TOKEN){
 
-            log("未输入Token");
+            log("未输入 Token");
 
             return null;
         }
@@ -113,74 +117,43 @@ async function github(path, method="GET", body=null){
         );
     }
 
-    try{
+    const r = await fetch(
 
-        const r = await fetch(
+        "https://api.github.com" + path,
 
-            "https://api.github.com" + path,
+        {
+            method,
 
-            {
-                method,
+            headers:{
 
-                headers:{
+                "Authorization":
+                    "Bearer " + GITHUB_TOKEN,
 
-                    "Authorization":
-                        "Bearer " + GITHUB_TOKEN,
+                "Accept":
+                    "application/vnd.github+json"
+            },
 
-                    "Accept":
-                        "application/vnd.github+json"
-                },
-
-                body: body
-                    ? JSON.stringify(body)
-                    : null
-            }
-        );
-
-        const data = await r.json();
-
-        console.log(data);
-
-        if(!r.ok){
-
-            log("GitHub错误: " + data.message);
-
-            if(
-                data.message &&
-                (
-                    data.message.includes("Bad credentials")
-                    ||
-                    data.message.includes("Requires authentication")
-                )
-            ){
-
-                localStorage.removeItem(
-                    "github_token"
-                );
-
-                GITHUB_TOKEN = "";
-
-                log("Token失效，请重新输入");
-            }
-
-            return null;
+            body: body
+                ? JSON.stringify(body)
+                : null
         }
+    );
 
-        return data;
+    const data = await r.json();
 
-    }catch(err){
+    console.log(data);
 
-        console.error(err);
+    if(!r.ok){
 
-        log("网络错误: " + err);
+        log("GitHub错误: " + data.message);
 
         return null;
     }
+
+    return data;
 }
 
-async function start(){
-
-    log("开始创建 WebRTC...");
+function setupPeer(){
 
     pc = new RTCPeerConnection({
 
@@ -191,65 +164,224 @@ async function start(){
         ]
     });
 
-    dc = pc.createDataChannel("chat");
+    pc.onconnectionstatechange = ()=>{
+
+        log(
+            "连接状态: " +
+            pc.connectionState
+        );
+    };
+
+    pc.onicecandidate = (e)=>{
+
+        if(e.candidate){
+
+            console.log(
+                "ICE:",
+                e.candidate.candidate
+            );
+        }
+    };
+
+    pc.ondatachannel = (e)=>{
+
+        dc = e.channel;
+
+        setupDataChannel();
+    };
+}
+
+function setupDataChannel(){
 
     dc.onopen = ()=>{
 
         log("P2P 已连接");
-
     };
 
     dc.onmessage = (e)=>{
 
         log("对方: " + e.data);
-
     };
+}
 
-    pc.onicecandidate = async (e)=>{
+async function createRoom(){
 
-        // ICE 收集结束
-        if(e.candidate) return;
+    log("创建房间...");
 
-        log("ICE 收集完成");
+    setupPeer();
 
-        const offer =
-            pc.localDescription.sdp;
+    dc =
+        pc.createDataChannel("chat");
 
-        log("上传 Offer 到 GitHub...");
-
-        const r = await github(
-
-            `/repos/${OWNER}/${REPO}/issues`,
-
-            "POST",
-
-            {
-                title:"offer",
-                body:offer
-            }
-        );
-
-        if(r){
-
-            log("Offer 已上传 GitHub");
-
-        }
-    };
+    setupDataChannel();
 
     const offer =
         await pc.createOffer();
 
-    await pc.setLocalDescription(offer);
+    await pc.setLocalDescription(
+        offer
+    );
 
-    log("Offer 已创建");
+    await waitIce();
 
+    const sdp =
+        pc.localDescription.sdp;
+
+    const r = await github(
+
+        `/repos/${OWNER}/${REPO}/issues`,
+
+        "POST",
+
+        {
+            title:"offer",
+            body:sdp
+        }
+    );
+
+    if(!r)return;
+
+    log(
+        "Offer 已上传"
+    );
+
+    pollAnswer();
+}
+
+async function joinRoom(){
+
+    log("正在读取 Offer...");
+
+    setupPeer();
+
+    const issues =
+        await github(
+            `/repos/${OWNER}/${REPO}/issues`
+        );
+
+    if(!issues)return;
+
+    let offerIssue = null;
+
+    for(const i of issues){
+
+        if(i.title === "offer"){
+
+            offerIssue = i;
+
+            break;
+        }
+    }
+
+    if(!offerIssue){
+
+        log("没有找到 Offer");
+
+        return;
+    }
+
+    log("已找到 Offer");
+
+    await pc.setRemoteDescription({
+
+        type:"offer",
+
+        sdp:offerIssue.body
+    });
+
+    const answer =
+        await pc.createAnswer();
+
+    await pc.setLocalDescription(
+        answer
+    );
+
+    await waitIce();
+
+    const sdp =
+        pc.localDescription.sdp;
+
+    await github(
+
+        `/repos/${OWNER}/${REPO}/issues`,
+
+        "POST",
+
+        {
+            title:"answer",
+            body:sdp
+        }
+    );
+
+    log("Answer 已上传");
+}
+
+function waitIce(){
+
+    return new Promise(resolve=>{
+
+        if(
+            pc.iceGatheringState ===
+            "complete"
+        ){
+
+            resolve();
+
+        }else{
+
+            pc.onicegatheringstatechange =
+                ()=>{
+
+                if(
+                    pc.iceGatheringState ===
+                    "complete"
+                ){
+
+                    resolve();
+                }
+            };
+        }
+    });
+}
+
+async function pollAnswer(){
+
+    log("等待 Answer...");
+
+    setInterval(async ()=>{
+
+        const issues =
+            await github(
+                `/repos/${OWNER}/${REPO}/issues`
+            );
+
+        if(!issues)return;
+
+        for(const i of issues){
+
+            if(i.title === "answer"){
+
+                log("收到 Answer");
+
+                await pc.setRemoteDescription({
+
+                    type:"answer",
+
+                    sdp:i.body
+                });
+
+                return;
+            }
+        }
+
+    },5000);
 }
 
 function sendMsg(){
 
     if(!dc){
 
-        log("DataChannel 未建立");
+        log("DataChannel 不存在");
 
         return;
     }
@@ -269,7 +401,6 @@ function sendMsg(){
     log("我: " + v);
 
     document.getElementById("msg").value = "";
-
 }
 
 </script>
