@@ -359,6 +359,18 @@ async function joinRoom(){
     }
 
     log("已找到 Offer");
+await github(
+
+    `/repos/${OWNER}/${REPO}/issues/${offerIssue.number}`,
+
+    "PATCH",
+
+    {
+        state:"closed"
+    }
+);
+
+log("Offer 已关闭");
 
     await pc.setRemoteDescription({
 
@@ -413,6 +425,18 @@ function pollAnswer(){
             if(i.title === "answer"){
 
                 log("收到 Answer");
+await github(
+
+    `/repos/${OWNER}/${REPO}/issues/${i.number}`,
+
+    "PATCH",
+
+    {
+        state:"closed"
+    }
+);
+
+log("Answer 已关闭");
 
                 await pc.setRemoteDescription({
 
