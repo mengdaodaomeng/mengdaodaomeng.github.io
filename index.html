@@ -55,6 +55,10 @@ button{
 清除Token
 </button>
 
+<button onclick="disconnect()">
+断开连接
+</button>
+
 </div>
 
 <div id="chat"></div>
@@ -349,8 +353,7 @@ async function pollAnswer(){
 
     log("等待 Answer...");
 
-    setInterval(async ()=>{
-
+    pollTimer = setInterval(async ()=>{
         const issues =
             await github(
                 `/repos/${OWNER}/${REPO}/issues`
@@ -402,6 +405,39 @@ function sendMsg(){
     log("我: " + v);
 
     document.getElementById("msg").value = "";
+}
+
+let pollTimer = null;
+
+function disconnect(){
+
+    log("正在断开连接...");
+
+    // 关闭 DataChannel
+    if(dc){
+
+        dc.close();
+
+        dc = null;
+    }
+
+    // 关闭 PeerConnection
+    if(pc){
+
+        pc.close();
+
+        pc = null;
+    }
+
+    // 停止轮询
+    if(pollTimer){
+
+        clearInterval(pollTimer);
+
+        pollTimer = null;
+    }
+
+    log("连接已断开");
 }
 
 </script>
