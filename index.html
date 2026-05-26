@@ -51,12 +51,12 @@ button{
 加入房间
 </button>
 
-<button onclick="clearToken()">
-清除掉Token
-</button>
-
 <button onclick="disconnect()">
 断开连接
+</button>
+
+<button onclick="clearToken()">
+清除Token
 </button>
 
 </div>
@@ -73,10 +73,10 @@ button{
 
 const OWNER = "mengdaodaomeng";
 const REPO = "mengdaodaomeng.github.io";
-log("OWNER: " + OWNER);
-log("REPO: " + REPO);
-let pc;
-let dc;
+
+let pc = null;
+let dc = null;
+let pollTimer = null;
 
 let GITHUB_TOKEN =
     localStorage.getItem("github_token") || "";
@@ -150,12 +150,49 @@ async function github(path, method="GET", body=null){
 
     if(!r.ok){
 
-        log("GitHub错误: " + data.message);
+        log(
+            "GitHub错误: " +
+            data.message
+        );
 
         return null;
     }
 
     return data;
+}
+
+async function deleteOldIssues(title){
+
+    log("清理旧 " + title + "...");
+
+    const issues =
+        await github(
+            `/repos/${OWNER}/${REPO}/issues`
+        );
+
+    if(!issues)return;
+
+    for(const i of issues){
+
+        if(i.title === title){
+
+            await github(
+
+                `/repos/${OWNER}/${REPO}/issues/${i.number}`,
+
+                "PATCH",
+
+                {
+                    state:"closed"
+                }
+            );
+
+            log(
+                "已关闭旧 Issue #" +
+                i.number
+            );
+        }
+    }
 }
 
 function setupPeer(){
@@ -177,17 +214,6 @@ function setupPeer(){
         );
     };
 
-    pc.onicecandidate = (e)=>{
-
-        if(e.candidate){
-
-            console.log(
-                "ICE:",
-                e.candidate.candidate
-            );
-        }
-    };
-
     pc.ondatachannel = (e)=>{
 
         dc = e.channel;
@@ -207,11 +233,54 @@ function setupDataChannel(){
 
         log("对方: " + e.data);
     };
+
+    dc.onclose = ()=>{
+
+        log("DataChannel 已关闭");
+    };
+}
+
+async function waitIce(){
+
+    return new Promise(resolve=>{
+
+        if(
+            pc.iceGatheringState ===
+            "complete"
+        ){
+
+            resolve();
+
+        }else{
+
+            pc.onicegatheringstatechange =
+                ()=>{
+
+                if(
+                    pc.iceGatheringState ===
+                    "complete"
+                ){
+
+                    resolve();
+                }
+            };
+        }
+    });
 }
 
 async function createRoom(){
 
+    disconnect();
+
     log("创建房间...");
+
+    await deleteOldIssues(
+        "offer"
+    );
+
+    await deleteOldIssues(
+        "answer"
+    );
 
     setupPeer();
 
@@ -246,16 +315,20 @@ async function createRoom(){
 
     if(!r)return;
 
-    log(
-        "Offer 已上传"
-    );
+    log("Offer 已上传");
 
     pollAnswer();
 }
 
 async function joinRoom(){
 
-    log("正在读取 Offer...");
+    disconnect();
+
+    log("加入房间...");
+
+    await deleteOldIssues(
+        "answer"
+    );
 
     setupPeer();
 
@@ -321,39 +394,13 @@ async function joinRoom(){
     log("Answer 已上传");
 }
 
-function waitIce(){
-
-    return new Promise(resolve=>{
-
-        if(
-            pc.iceGatheringState ===
-            "complete"
-        ){
-
-            resolve();
-
-        }else{
-
-            pc.onicegatheringstatechange =
-                ()=>{
-
-                if(
-                    pc.iceGatheringState ===
-                    "complete"
-                ){
-
-                    resolve();
-                }
-            };
-        }
-    });
-}
-
-async function pollAnswer(){
+function pollAnswer(){
 
     log("等待 Answer...");
 
-    pollTimer = setInterval(async ()=>{
+    pollTimer = setInterval(
+        async ()=>{
+
         const issues =
             await github(
                 `/repos/${OWNER}/${REPO}/issues`
@@ -374,11 +421,17 @@ async function pollAnswer(){
                     sdp:i.body
                 });
 
+                clearInterval(
+                    pollTimer
+                );
+
+                pollTimer = null;
+
                 return;
             }
         }
 
-    },5000);
+    },3000);
 }
 
 function sendMsg(){
@@ -397,23 +450,22 @@ function sendMsg(){
         return;
     }
 
-    const v =
-        document.getElementById("msg").value;
+    const input =
+        document.getElementById("msg");
+
+    const v = input.value;
+
+    if(!v)return;
 
     dc.send(v);
 
     log("我: " + v);
 
-    document.getElementById("msg").value = "";
+    input.value = "";
 }
-
-let pollTimer = null;
 
 function disconnect(){
 
-    log("正在断开连接...");
-
-    // 关闭 DataChannel
     if(dc){
 
         dc.close();
@@ -421,7 +473,6 @@ function disconnect(){
         dc = null;
     }
 
-    // 关闭 PeerConnection
     if(pc){
 
         pc.close();
@@ -429,10 +480,11 @@ function disconnect(){
         pc = null;
     }
 
-    // 停止轮询
     if(pollTimer){
 
-        clearInterval(pollTimer);
+        clearInterval(
+            pollTimer
+        );
 
         pollTimer = null;
     }
