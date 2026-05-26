@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>GitHub WebRTC Chat</title>
+<title>GitHub Issues WebRTC Chat</title>
 
 <style>
 
@@ -71,7 +71,10 @@ button{
 
 <script>
 
+// 改成你的 GitHub 用户名
 const OWNER = "mengdaodaomeng";
+
+// 改成你的仓库名
 const REPO = "mengdaodaomeng.github.io";
 
 let pc = null;
@@ -89,6 +92,8 @@ function log(t){
     div.innerHTML += t + "<br>";
 
     div.scrollTop = div.scrollHeight;
+
+    console.log(t);
 }
 
 function clearToken(){
@@ -122,48 +127,63 @@ async function github(path, method="GET", body=null){
         );
     }
 
-    const r = await fetch(
+    try{
 
-        "https://api.github.com" + path,
+        const r = await fetch(
 
-        {
-            method,
+            "https://api.github.com" + path,
 
-            headers:{
+            {
+                method,
 
-                "Authorization":
-                    "Bearer " + GITHUB_TOKEN,
+                headers:{
 
-                "Accept":
-                    "application/vnd.github+json"
-            },
+                    "Authorization":
+                        "Bearer " + GITHUB_TOKEN,
 
-            body: body
-                ? JSON.stringify(body)
-                : null
+                    "Accept":
+                        "application/vnd.github+json"
+                },
+
+                body: body
+                    ? JSON.stringify(body)
+                    : null
+            }
+        );
+
+        const data =
+            await r.json();
+
+        console.log(data);
+
+        if(!r.ok){
+
+            log(
+                "GitHub错误: " +
+                data.message
+            );
+
+            return null;
         }
-    );
 
-    const data = await r.json();
+        return data;
 
-    console.log(data);
+    }catch(err){
 
-    if(!r.ok){
+        console.error(err);
 
         log(
-            "GitHub错误: " +
-            data.message
+            "网络错误: " +
+            err
         );
 
         return null;
     }
-
-    return data;
 }
 
-async function deleteOldIssues(title){
+async function deleteAllIssues(){
 
-    log("清理旧 " + title + "...");
+    log("清理所有旧 Issues...");
 
     const issues =
         await github(
@@ -174,25 +194,24 @@ async function deleteOldIssues(title){
 
     for(const i of issues){
 
-        if(i.title === title){
+        await github(
 
-            await github(
+            `/repos/${OWNER}/${REPO}/issues/${i.number}`,
 
-                `/repos/${OWNER}/${REPO}/issues/${i.number}`,
+            "PATCH",
 
-                "PATCH",
+            {
+                state:"closed"
+            }
+        );
 
-                {
-                    state:"closed"
-                }
-            );
-
-            log(
-                "已关闭旧 Issue #" +
-                i.number
-            );
-        }
+        log(
+            "已关闭 Issue #" +
+            i.number
+        );
     }
+
+    log("所有旧 Issues 已清理");
 }
 
 function setupPeer(){
@@ -201,12 +220,14 @@ function setupPeer(){
 
         iceServers:[
             {
-                urls:"stun:stun.l.google.com:19302"
+                urls:
+                "stun:stun.l.google.com:19302"
             }
         ]
     });
 
-    pc.onconnectionstatechange = ()=>{
+    pc.onconnectionstatechange =
+        ()=>{
 
         log(
             "连接状态: " +
@@ -274,13 +295,8 @@ async function createRoom(){
 
     log("创建房间...");
 
-    await deleteOldIssues(
-        "offer"
-    );
-
-    await deleteOldIssues(
-        "answer"
-    );
+    // 创建前清理全部旧 Issues
+    await deleteAllIssues();
 
     setupPeer();
 
@@ -326,10 +342,6 @@ async function joinRoom(){
 
     log("加入房间...");
 
-    await deleteOldIssues(
-        "answer"
-    );
-
     setupPeer();
 
     const issues =
@@ -359,18 +371,20 @@ async function joinRoom(){
     }
 
     log("已找到 Offer");
-await github(
 
-    `/repos/${OWNER}/${REPO}/issues/${offerIssue.number}`,
+    // 读取 Offer 后立即关闭
+    await github(
 
-    "PATCH",
+        `/repos/${OWNER}/${REPO}/issues/${offerIssue.number}`,
 
-    {
-        state:"closed"
-    }
-);
+        "PATCH",
 
-log("Offer 已关闭");
+        {
+            state:"closed"
+        }
+    );
+
+    log("Offer 已关闭");
 
     await pc.setRemoteDescription({
 
@@ -410,8 +424,8 @@ function pollAnswer(){
 
     log("等待 Answer...");
 
-    pollTimer = setInterval(
-        async ()=>{
+    pollTimer =
+        setInterval(async ()=>{
 
         const issues =
             await github(
@@ -425,18 +439,20 @@ function pollAnswer(){
             if(i.title === "answer"){
 
                 log("收到 Answer");
-await github(
 
-    `/repos/${OWNER}/${REPO}/issues/${i.number}`,
+                // 读取后立即关闭
+                await github(
 
-    "PATCH",
+                    `/repos/${OWNER}/${REPO}/issues/${i.number}`,
 
-    {
-        state:"closed"
-    }
-);
+                    "PATCH",
 
-log("Answer 已关闭");
+                    {
+                        state:"closed"
+                    }
+                );
+
+                log("Answer 已关闭");
 
                 await pc.setRemoteDescription({
 
