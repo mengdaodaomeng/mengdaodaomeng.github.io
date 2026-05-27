@@ -1,32 +1,15 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="utf-8">
-<title>GitHub Issues WebRTC Chat</title>
+<meta charset="UTF-8">
+<title>GitHub WebRTC Chat</title>
 
 <style>
-
 body{
-    font-family:sans-serif;
-    max-width:800px;
-    margin:auto;
+    font-family:Arial;
     padding:20px;
-}
-
-#chat{
-    border:1px solid #ccc;
-    height:350px;
-    overflow:auto;
-    padding:10px;
-    background:#f5f5f5;
-    margin-top:10px;
-    margin-bottom:10px;
-}
-
-input{
-    width:70%;
-    padding:10px;
-    margin:5px;
+    background:#111;
+    color:white;
 }
 
 button{
@@ -34,502 +17,317 @@ button{
     margin:5px;
 }
 
-</style>
+input{
+    padding:10px;
+    width:250px;
+}
 
+#log{
+    border:1px solid #444;
+    height:300px;
+    overflow:auto;
+    padding:10px;
+    margin-top:10px;
+    white-space:pre-wrap;
+}
+</style>
 </head>
 <body>
 
-<h2>GitHub Issues WebRTC Chat</h2>
+<h2>GitHub 阅后即焚 WebRTC</h2>
 
 <div>
-
-<button onclick="createRoom()">
-创建房间
-</button>
-
-<button onclick="joinRoom()">
-加入房间
-</button>
-
-<button onclick="disconnect()">
-断开连接
-</button>
-
-<button onclick="clearToken()">
-清除Token
-</button>
-
+GitHub 用户名：
+<input hiddened id="owner" value="mengdaodaomeng">
 </div>
 
-<div id="chat"></div>
+<div>
+仓库名：
+<input hiddened id="repo" value="mengdaodaomeng.github.io">
+</div>
 
-<input id="msg">
+<div>
+Token：
+<input id="token" type="password" value="">
+</div>
 
-<button onclick="sendMsg()">
-发送
-</button>
+<hr>
+
+<button onclick="createRoom()">创建房间</button>
+
+<input id="roomInput" placeholder="输入房间号">
+
+<button onclick="joinRoom()">加入房间</button>
+
+<hr>
+
+<input id="msgInput" placeholder="消息">
+
+<button onclick="sendMsg()">发送</button>
+
+<div id="log"></div>
 
 <script>
 
-// 改成你的 GitHub 用户名
-const OWNER = "mengdaodaomeng";
+let pc;
+let dc;
 
-// 改成你的仓库名
-const REPO = "mengdaodaomeng.github.io";
+let roomNumber = null;
 
-let pc = null;
-let dc = null;
-let pollTimer = null;
+const logDiv = document.getElementById("log");
 
-let GITHUB_TOKEN =
-    localStorage.getItem("github_token") || "";
-
-function log(t){
-
-    const div =
-        document.getElementById("chat");
-
-    div.innerHTML += t + "<br>";
-
-    div.scrollTop = div.scrollHeight;
-
-    console.log(t);
+function log(msg){
+    console.log(msg);
+    logDiv.innerHTML += msg + "\\n";
+    logDiv.scrollTop = logDiv.scrollHeight;
 }
 
-function clearToken(){
+function api(path, method="GET", body=null){
 
-    localStorage.removeItem(
-        "github_token"
-    );
+    const owner = document.getElementById("owner").value;
+    const repo = document.getElementById("repo").value;
+    const token = document.getElementById("token").value;
 
-    GITHUB_TOKEN = "";
-
-    log("Token 已清除");
-}
-
-async function github(path, method="GET", body=null){
-
-    if(!GITHUB_TOKEN){
-
-        GITHUB_TOKEN =
-            prompt("输入 GitHub Token");
-
-        if(!GITHUB_TOKEN){
-
-            log("未输入 Token");
-
-            return null;
+    return fetch(
+        `https://api.github.com/repos/${owner}/${repo}${path}`,
+        {
+            method,
+            headers:{
+                "Authorization":"token " + token,
+                "Accept":"application/vnd.github+json"
+            },
+            body: body ? JSON.stringify(body) : null
         }
-
-        localStorage.setItem(
-            "github_token",
-            GITHUB_TOKEN
-        );
-    }
-
-    try{
-
-        const r = await fetch(
-
-            "https://api.github.com" + path,
-
-            {
-                method,
-
-                headers:{
-
-                    "Authorization":
-                        "Bearer " + GITHUB_TOKEN,
-
-                    "Accept":
-                        "application/vnd.github+json"
-                },
-
-                body: body
-                    ? JSON.stringify(body)
-                    : null
-            }
-        );
-
-        const data =
-            await r.json();
-
-        console.log(data);
-
-        if(!r.ok){
-
-            log(
-                "GitHub错误: " +
-                data.message
-            );
-
-            return null;
-        }
-
-        return data;
-
-    }catch(err){
-
-        console.error(err);
-
-        log(
-            "网络错误: " +
-            err
-        );
-
-        return null;
-    }
+    ).then(r=>r.json());
 }
 
-async function deleteAllIssues(){
+async function clearOldIssues(){
 
-    log("清理所有旧 Issues...");
+    log("清理旧房间...");
 
-    const issues =
-        await github(
-            `/repos/${OWNER}/${REPO}/issues`
-        );
+    let issues = await api("/issues");
 
-    if(!issues)return;
+    for(let issue of issues){
 
-    for(const i of issues){
-
-        await github(
-
-            `/repos/${OWNER}/${REPO}/issues/${i.number}`,
-
+        await api(
+            "/issues/" + issue.number,
             "PATCH",
-
             {
                 state:"closed"
             }
         );
 
-        log(
-            "已关闭 Issue #" +
-            i.number
+        let comments = await api(
+            "/issues/" + issue.number + "/comments"
         );
+
+        for(let c of comments){
+
+            await fetch(
+                c.url,
+                {
+                    method:"DELETE",
+                    headers:{
+                        "Authorization":"token " +
+                        document.getElementById("token").value
+                    }
+                }
+            );
+        }
     }
 
-    log("所有旧 Issues 已清理");
+    log("旧房间已清理");
 }
 
-function setupPeer(){
+function createPeer(){
 
     pc = new RTCPeerConnection({
 
         iceServers:[
             {
-                urls:
-                "stun:stun.l.google.com:19302"
+                urls:"stun:stun.l.google.com:19302"
             }
         ]
     });
 
-    pc.onconnectionstatechange =
-        ()=>{
+    pc.onicecandidate = async e => {
 
-        log(
-            "连接状态: " +
-            pc.connectionState
-        );
+        if(!e.candidate) return;
+
+        await sendSignal({
+            type:"ice",
+            data:e.candidate
+        });
     };
 
-    pc.ondatachannel = (e)=>{
+    pc.ondatachannel = e => {
 
         dc = e.channel;
 
-        setupDataChannel();
+        setupChannel();
     };
 }
 
-function setupDataChannel(){
+function setupChannel(){
 
     dc.onopen = ()=>{
 
-        log("P2P 已连接");
+        log("数据通道已连接");
     };
 
-    dc.onmessage = (e)=>{
+    dc.onmessage = e => {
 
         log("对方: " + e.data);
     };
-
-    dc.onclose = ()=>{
-
-        log("DataChannel 已关闭");
-    };
-}
-
-async function waitIce(){
-
-    return new Promise(resolve=>{
-
-        if(
-            pc.iceGatheringState ===
-            "complete"
-        ){
-
-            resolve();
-
-        }else{
-
-            pc.onicegatheringstatechange =
-                ()=>{
-
-                if(
-                    pc.iceGatheringState ===
-                    "complete"
-                ){
-
-                    resolve();
-                }
-            };
-        }
-    });
 }
 
 async function createRoom(){
 
-    disconnect();
+    await clearOldIssues();
 
-    log("创建房间...");
+    createPeer();
 
-    // 创建前清理全部旧 Issues
-    await deleteAllIssues();
+    dc = pc.createDataChannel("chat");
 
-    setupPeer();
+    setupChannel();
 
-    dc =
-        pc.createDataChannel("chat");
-
-    setupDataChannel();
-
-    const offer =
-        await pc.createOffer();
-
-    await pc.setLocalDescription(
-        offer
-    );
-
-    await waitIce();
-
-    const sdp =
-        pc.localDescription.sdp;
-
-    const r = await github(
-
-        `/repos/${OWNER}/${REPO}/issues`,
-
+    let issue = await api(
+        "/issues",
         "POST",
-
         {
-            title:"offer",
-            body:sdp
+            title:"room",
+            body:"signal"
         }
     );
 
-    if(!r)return;
+    roomNumber = issue.number;
 
-    log("Offer 已上传");
+    log("房间号: " + roomNumber);
 
-    pollAnswer();
+    let offer = await pc.createOffer();
+
+    await pc.setLocalDescription(offer);
+
+    await sendSignal({
+        type:"offer",
+        data:offer
+    });
+
+    pollSignals();
 }
 
 async function joinRoom(){
 
-    disconnect();
+    roomNumber =
+        document.getElementById("roomInput").value;
 
-    log("加入房间...");
+    createPeer();
 
-    setupPeer();
-
-    const issues =
-        await github(
-            `/repos/${OWNER}/${REPO}/issues`
-        );
-
-    if(!issues)return;
-
-    let offerIssue = null;
-
-    for(const i of issues){
-
-        if(i.title === "offer"){
-
-            offerIssue = i;
-
-            break;
-        }
-    }
-
-    if(!offerIssue){
-
-        log("没有找到 Offer");
-
-        return;
-    }
-
-    log("已找到 Offer");
-
-    // 读取 Offer 后立即关闭
-    await github(
-
-        `/repos/${OWNER}/${REPO}/issues/${offerIssue.number}`,
-
-        "PATCH",
-
-        {
-            state:"closed"
-        }
-    );
-
-    log("Offer 已关闭");
-
-    await pc.setRemoteDescription({
-
-        type:"offer",
-
-        sdp:offerIssue.body
-    });
-
-    const answer =
-        await pc.createAnswer();
-
-    await pc.setLocalDescription(
-        answer
-    );
-
-    await waitIce();
-
-    const sdp =
-        pc.localDescription.sdp;
-
-    await github(
-
-        `/repos/${OWNER}/${REPO}/issues`,
-
-        "POST",
-
-        {
-            title:"answer",
-            body:sdp
-        }
-    );
-
-    log("Answer 已上传");
+    pollSignals();
 }
 
-function pollAnswer(){
+async function sendSignal(obj){
 
-    log("等待 Answer...");
+    await api(
+        "/issues/" + roomNumber + "/comments",
+        "POST",
+        {
+            body:JSON.stringify(obj)
+        }
+    );
+}
 
-    pollTimer =
-        setInterval(async ()=>{
+async function pollSignals(){
 
-        const issues =
-            await github(
-                `/repos/${OWNER}/${REPO}/issues`
-            );
+    log("开始轮询信令...");
 
-        if(!issues)return;
+    setInterval(async ()=>{
 
-        for(const i of issues){
+        let comments = await api(
+            "/issues/" + roomNumber + "/comments"
+        );
 
-            if(i.title === "answer"){
+        for(let c of comments){
 
-                log("收到 Answer");
+            try{
 
-                // 读取后立即关闭
-                await github(
+                let msg = JSON.parse(c.body);
 
-                    `/repos/${OWNER}/${REPO}/issues/${i.number}`,
+                if(msg.type === "offer"){
 
-                    "PATCH",
+                    if(pc.remoteDescription) continue;
 
+                    log("收到 OFFER");
+
+                    await pc.setRemoteDescription(
+                        new RTCSessionDescription(msg.data)
+                    );
+
+                    let answer =
+                        await pc.createAnswer();
+
+                    await pc.setLocalDescription(answer);
+
+                    await sendSignal({
+                        type:"answer",
+                        data:answer
+                    });
+                }
+
+                else if(msg.type === "answer"){
+
+                    if(pc.remoteDescription) continue;
+
+                    log("收到 ANSWER");
+
+                    await pc.setRemoteDescription(
+                        new RTCSessionDescription(msg.data)
+                    );
+                }
+
+                else if(msg.type === "ice"){
+
+                    try{
+
+                        await pc.addIceCandidate(
+                            new RTCIceCandidate(msg.data)
+                        );
+
+                    }catch(err){}
+                }
+
+                // 阅后即焚：立刻删除评论
+
+                await fetch(
+                    c.url,
                     {
-                        state:"closed"
+                        method:"DELETE",
+                        headers:{
+                            "Authorization":"token " +
+                            document.getElementById("token").value
+                        }
                     }
                 );
 
-                log("Answer 已关闭");
-
-                await pc.setRemoteDescription({
-
-                    type:"answer",
-
-                    sdp:i.body
-                });
-
-                clearInterval(
-                    pollTimer
-                );
-
-                pollTimer = null;
-
-                return;
-            }
+            }catch(err){}
         }
 
-    },3000);
+    },2000);
 }
 
 function sendMsg(){
 
-    if(!dc){
+    let input =
+        document.getElementById("msgInput");
 
-        log("DataChannel 不存在");
+    if(dc && dc.readyState === "open"){
 
-        return;
+        dc.send(input.value);
+
+        log("我: " + input.value);
+
+        input.value = "";
     }
-
-    if(dc.readyState !== "open"){
-
-        log("P2P 尚未连接");
-
-        return;
-    }
-
-    const input =
-        document.getElementById("msg");
-
-    const v = input.value;
-
-    if(!v)return;
-
-    dc.send(v);
-
-    log("我: " + v);
-
-    input.value = "";
-}
-
-function disconnect(){
-
-    if(dc){
-
-        dc.close();
-
-        dc = null;
-    }
-
-    if(pc){
-
-        pc.close();
-
-        pc = null;
-    }
-
-    if(pollTimer){
-
-        clearInterval(
-            pollTimer
-        );
-
-        pollTimer = null;
-    }
-
-    log("连接已断开");
 }
 
 </script>
