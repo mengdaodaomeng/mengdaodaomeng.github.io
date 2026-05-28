@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -5,11 +6,17 @@
 <meta charset="UTF-8">
 
 <!-- 禁止缓存 -->
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
+<meta http-equiv="Cache-Control"
+content="no-cache, no-store, must-revalidate">
 
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Pragma"
+content="no-cache">
+
+<meta http-equiv="Expires"
+content="0">
+
+<meta name="viewport"
+content="width=device-width, initial-scale=1.0">
 
 <title>GitHub WebRTC 评论信令</title>
 
@@ -53,15 +60,32 @@ input{
 </head>
 <body>
 
-<h2>GitHub WebRTC 评论信令</h2>
+<h2>
+GitHub WebRTC 评论信令
+</h2>
 
 <div>
 GitHub Token:
 <br>
-<input id="token" type="password">
+
+<input
+    id="token"
+    type="password"
+    placeholder="输入 GitHub Token">
+
 </div>
 
 <br>
+
+<button onclick="saveToken()">
+保存Token
+</button>
+
+<button onclick="clearToken()">
+清除Token
+</button>
+
+<hr>
 
 <button onclick="createRoom()">
 创建房间
@@ -73,7 +97,9 @@ GitHub Token:
 
 <hr>
 
-<input id="msgInput" placeholder="输入消息">
+<input
+    id="msgInput"
+    placeholder="输入消息">
 
 <button onclick="sendMsg()">
 发送
@@ -83,36 +109,120 @@ GitHub Token:
 
 <script>
 
-const OWNER = "mengdaodaomeng";
-const REPO = "mengdaodaomeng.github.io";
+/*
+====================================
+配置
+====================================
+*/
+
+const OWNER =
+    "mengdaodaomeng";
+
+const REPO =
+    "mengdaodaomeng.github.io";
 
 /*
-固定使用 #50
+固定 Issue #50
 */
+
 const ISSUE_NUMBER = 50;
+
+/*
+====================================
+变量
+====================================
+*/
 
 let pc;
 let dc;
+
+let polling = false;
 
 let pendingIce = [];
 
 let processed = new Set();
 
 const clientId =
-    Math.random().toString(36).substring(2);
+    Math.random()
+    .toString(36)
+    .substring(2);
 
 const logDiv =
     document.getElementById("log");
+
+/*
+====================================
+日志
+====================================
+*/
 
 function log(msg){
 
     console.log(msg);
 
-    logDiv.innerHTML += msg + "\n";
+    logDiv.innerHTML +=
+        msg + "\n";
 
     logDiv.scrollTop =
         logDiv.scrollHeight;
 }
+
+/*
+====================================
+Token缓存
+====================================
+*/
+
+function saveToken(){
+
+    let token =
+        document.getElementById(
+            "token"
+        ).value;
+
+    localStorage.setItem(
+        "github_token",
+        token
+    );
+
+    log("Token已保存");
+}
+
+function loadToken(){
+
+    let token =
+        localStorage.getItem(
+            "github_token"
+        );
+
+    if(token){
+
+        document.getElementById(
+            "token"
+        ).value = token;
+
+        log("Token已加载");
+    }
+}
+
+function clearToken(){
+
+    localStorage.removeItem(
+        "github_token"
+    );
+
+    document.getElementById(
+        "token"
+    ).value = "";
+
+    log("Token已清除");
+}
+
+/*
+====================================
+Headers
+====================================
+*/
 
 function headers(){
 
@@ -120,31 +230,74 @@ function headers(){
 
         "Authorization":
             "token " +
-            document.getElementById("token").value,
+            document.getElementById(
+                "token"
+            ).value,
 
         "Accept":
             "application/vnd.github+json"
     };
 }
 
-async function api(path, method="GET", body=null){
+/*
+====================================
+GitHub API
+====================================
+*/
 
-    let r = await fetch(
+async function api(
+    path,
+    method="GET",
+    body=null
+){
 
-        `https://api.github.com/repos/${OWNER}/${REPO}${path}`,
+    try{
 
-        {
-            method:method,
-            headers:headers(),
-            body: body ? JSON.stringify(body) : null
+        let r = await fetch(
+
+            `https://api.github.com/repos/${OWNER}/${REPO}${path}`,
+
+            {
+                method:method,
+
+                headers:headers(),
+
+                body: body
+                    ? JSON.stringify(body)
+                    : null
+            }
+        );
+
+        /*
+        DELETE 没JSON
+        */
+
+        if(method === "DELETE"){
+
+            return {};
         }
-    );
 
-    if(method === "DELETE")
-        return {};
+        let data =
+            await r.json();
 
-    return await r.json();
+        return data;
+
+    }catch(err){
+
+        log(
+            "API失败: " +
+            err
+        );
+
+        return null;
+    }
 }
+
+/*
+====================================
+WebRTC
+====================================
+*/
 
 function createPeer(){
 
@@ -152,7 +305,8 @@ function createPeer(){
 
         iceServers:[
             {
-                urls:"stun:stun.l.google.com:19302"
+                urls:
+                "stun:stun.l.google.com:19302"
             }
         ]
     });
@@ -173,7 +327,12 @@ function createPeer(){
         );
     };
 
-    pc.onicecandidate = async e => {
+    /*
+    ICE
+    */
+
+    pc.onicecandidate =
+    async e => {
 
         if(!e.candidate)
             return;
@@ -188,9 +347,13 @@ function createPeer(){
         });
     };
 
+    /*
+    DataChannel
+    */
+
     pc.ondatachannel = e => {
 
-        log("收到 DataChannel");
+        log("收到DataChannel");
 
         dc = e.channel;
 
@@ -198,29 +361,50 @@ function createPeer(){
     };
 }
 
+/*
+====================================
+数据通道
+====================================
+*/
+
 function setupChannel(){
 
     dc.onopen = ()=>{
 
-        log("数据通道已连接");
+        log(
+            "数据通道已连接"
+        );
     };
 
     dc.onclose = ()=>{
 
-        log("数据通道关闭");
+        log(
+            "数据通道关闭"
+        );
     };
 
     dc.onmessage = e => {
 
-        log("对方: " + e.data);
+        log(
+            "对方: " +
+            e.data
+        );
     };
 }
 
+/*
+====================================
+发送信令
+====================================
+*/
+
 async function sendSignal(obj){
 
-    obj.from = clientId;
+    obj.from =
+        clientId;
 
-    obj.time = Date.now();
+    obj.time =
+        Date.now();
 
     await api(
 
@@ -234,12 +418,20 @@ async function sendSignal(obj){
     );
 }
 
+/*
+====================================
+创建房间
+====================================
+*/
+
 async function createRoom(){
 
     createPeer();
 
     dc =
-        pc.createDataChannel("chat");
+        pc.createDataChannel(
+            "chat"
+        );
 
     setupChannel();
 
@@ -264,6 +456,12 @@ async function createRoom(){
     pollSignals();
 }
 
+/*
+====================================
+加入房间
+====================================
+*/
+
 async function joinRoom(){
 
     createPeer();
@@ -273,12 +471,16 @@ async function joinRoom(){
     pollSignals();
 }
 
+/*
+====================================
+处理信令
+====================================
+*/
+
 async function handleSignal(msg){
 
     /*
-    自己的消息：
-    不处理
-    不删除
+    自己消息不处理
     */
 
     if(msg.from === clientId){
@@ -307,7 +509,7 @@ async function handleSignal(msg){
         );
 
         /*
-        添加缓存 ICE
+        补缓存ICE
         */
 
         for(let ice of pendingIce){
@@ -370,7 +572,7 @@ async function handleSignal(msg){
         );
 
         /*
-        添加缓存 ICE
+        补缓存ICE
         */
 
         for(let ice of pendingIce){
@@ -400,7 +602,7 @@ async function handleSignal(msg){
 
         /*
         remoteDescription
-        未建立
+        还没建立
         */
 
         if(!pc.remoteDescription){
@@ -427,7 +629,10 @@ async function handleSignal(msg){
 
         }catch(err){
 
-            log("ICE失败");
+            log(
+                "ICE失败: " +
+                err
+            );
         }
 
         return true;
@@ -436,11 +641,26 @@ async function handleSignal(msg){
     return false;
 }
 
-async function pollSignals(){
+/*
+====================================
+轮询
+====================================
+*/
+
+function pollSignals(){
 
     log("开始轮询");
 
     setInterval(async ()=>{
+
+        /*
+        防止重复轮询
+        */
+
+        if(polling)
+            return;
+
+        polling = true;
 
         try{
 
@@ -450,27 +670,74 @@ async function pollSignals(){
                     `/issues/${ISSUE_NUMBER}/comments`
                 );
 
+            /*
+            GitHub错误
+            */
+
+            if(
+                !Array.isArray(
+                    comments
+                )
+            ){
+
+                log(
+
+                    "GitHub错误: " +
+
+                    JSON.stringify(
+                        comments
+                    )
+                );
+
+                polling = false;
+
+                return;
+            }
+
+            /*
+            排序
+            */
+
             comments.sort((a,b)=>{
 
                 return a.id - b.id;
             });
 
+            /*
+            遍历评论
+            */
+
             for(let c of comments){
 
-                if(processed.has(c.id))
-                    continue;
+                /*
+                已处理
+                */
 
-                processed.add(c.id);
+                if(
+                    processed.has(c.id)
+                ){
+                    continue;
+                }
 
                 try{
 
                     let msg =
-                        JSON.parse(c.body);
+                        JSON.parse(
+                            c.body
+                        );
 
                     let handled =
                         await handleSignal(
                             msg
                         );
+
+                    /*
+                    处理成功
+                    */
+
+                    processed.add(
+                        c.id
+                    );
 
                     /*
                     谁消费
@@ -484,22 +751,42 @@ async function pollSignals(){
                             c.url,
 
                             {
-                                method:"DELETE",
-                                headers:headers()
+                                method:
+                                    "DELETE",
+
+                                headers:
+                                    headers()
                             }
                         );
                     }
 
-                }catch(err){}
+                }catch(err){
+
+                    log(
+                        "消息错误: " +
+                        err
+                    );
+                }
             }
 
         }catch(err){
 
-            log("轮询失败");
+            log(
+                "轮询失败: " +
+                err
+            );
         }
 
-    },1000);
+        polling = false;
+
+    },3000);
 }
+
+/*
+====================================
+发送消息
+====================================
+*/
 
 function sendMsg(){
 
@@ -513,7 +800,9 @@ function sendMsg(){
         dc.readyState === "open"
     ){
 
-        dc.send(input.value);
+        dc.send(
+            input.value
+        );
 
         log(
             "我: " +
@@ -524,7 +813,16 @@ function sendMsg(){
     }
 }
 
+/*
+====================================
+启动
+====================================
+*/
+
+loadToken();
+
 </script>
 
 </body>
 </html>
+```
