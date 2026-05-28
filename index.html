@@ -11,7 +11,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<title>GitHub 阅后即焚 WebRTC</title>
+<title>GitHub WebRTC Comment Signal</title>
 
 <style>
 
@@ -29,23 +29,23 @@ input,button{
     border-radius:8px;
 }
 
-input{
-    width:260px;
-}
-
 button{
     background:#2d89ff;
     color:white;
 }
 
+input{
+    width:260px;
+}
+
 #log{
     margin-top:20px;
     border:1px solid #444;
+    background:#000;
     padding:10px;
     height:350px;
     overflow:auto;
     white-space:pre-wrap;
-    background:#000;
 }
 
 </style>
@@ -53,12 +53,12 @@ button{
 </head>
 <body>
 
-<h2>GitHub 阅后即焚 WebRTC</h2>
+<h2>GitHub Comment WebRTC</h2>
 
 <div>
-GitHub Token：
+GitHub Token:
 <br>
-<input id="token" type="password" placeholder="输入 GitHub Token">
+<input id="token" type="password">
 </div>
 
 <br>
@@ -66,10 +66,6 @@ GitHub Token：
 <button onclick="createRoom()">
 创建房间
 </button>
-
-<br><br>
-
-<input id="roomInput" placeholder="输入房间号">
 
 <button onclick="joinRoom()">
 加入房间
@@ -90,19 +86,26 @@ GitHub Token：
 const OWNER = "mengdaodaomeng";
 const REPO = "mengdaodaomeng.github.io";
 
+/*
+固定使用 #49
+不再创建/删除 Issue
+*/
+const ISSUE_NUMBER = 49;
+
 let pc;
 let dc;
 
-let roomNumber = null;
+let clientId =
+    Math.random().toString(36).substring(2);
 
-let processedComments = new Set();
+let processed = new Set();
 
 let pendingIce = [];
 
-const clientId =
-    Math.random().toString(36).substring(2);
+let isCaller = false;
 
-const logDiv = document.getElementById("log");
+const logDiv =
+    document.getElementById("log");
 
 function log(msg){
 
@@ -110,7 +113,8 @@ function log(msg){
 
     logDiv.innerHTML += msg + "\n";
 
-    logDiv.scrollTop = logDiv.scrollHeight;
+    logDiv.scrollTop =
+        logDiv.scrollHeight;
 }
 
 function headers(){
@@ -145,55 +149,6 @@ async function api(path, method="GET", body=null){
     return await r.json();
 }
 
-async function clearOldRooms(){
-
-    log("清理旧房间...");
-
-    let issues = await api("/issues");
-
-    for(let issue of issues){
-
-        try{
-
-            // 删除评论
-
-            let comments =
-                await api(
-                    `/issues/${issue.number}/comments`
-                );
-
-            for(let c of comments){
-
-                await fetch(
-
-                    c.url,
-
-                    {
-                        method:"DELETE",
-                        headers:headers()
-                    }
-                );
-            }
-
-            // 关闭 issue
-
-            await api(
-
-                `/issues/${issue.number}`,
-
-                "PATCH",
-
-                {
-                    state:"closed"
-                }
-            );
-
-        }catch(err){}
-    }
-
-    log("旧房间已清理");
-}
-
 function createPeer(){
 
     pc = new RTCPeerConnection({
@@ -207,12 +162,14 @@ function createPeer(){
 
     pc.onconnectionstatechange = ()=>{
 
-        log("连接状态: " + pc.connectionState);
+        log("连接状态: " +
+            pc.connectionState);
     };
 
     pc.oniceconnectionstatechange = ()=>{
 
-        log("ICE状态: " + pc.iceConnectionState);
+        log("ICE状态: " +
+            pc.iceConnectionState);
     };
 
     pc.onicecandidate = async e => {
@@ -249,7 +206,7 @@ function setupChannel(){
 
     dc.onclose = ()=>{
 
-        log("数据通道已关闭");
+        log("数据通道关闭");
     };
 
     dc.onmessage = e => {
@@ -266,7 +223,7 @@ async function sendSignal(obj){
 
     await api(
 
-        `/issues/${roomNumber}/comments`,
+        `/issues/${ISSUE_NUMBER}/comments`,
 
         "POST",
 
@@ -278,33 +235,23 @@ async function sendSignal(obj){
 
 async function createRoom(){
 
-    await clearOldRooms();
+    isCaller = true;
 
     createPeer();
 
-    dc = pc.createDataChannel("chat");
+    dc =
+        pc.createDataChannel("chat");
 
     setupChannel();
 
-    let issue = await api(
+    log("创建房间");
 
-        "/issues",
+    let offer =
+        await pc.createOffer();
 
-        "POST",
-
-        {
-            title:"room-" + Date.now(),
-            body:"signal"
-        }
+    await pc.setLocalDescription(
+        offer
     );
-
-    roomNumber = issue.number;
-
-    log("房间号: " + roomNumber);
-
-    let offer = await pc.createOffer();
-
-    await pc.setLocalDescription(offer);
 
     log("发送 OFFER");
 
@@ -320,10 +267,11 @@ async function createRoom(){
 
 async function joinRoom(){
 
-    roomNumber =
-        document.getElementById("roomInput").value;
+    isCaller = false;
 
     createPeer();
+
+    log("加入房间");
 
     pollSignals();
 }
@@ -333,7 +281,9 @@ async function handleSignal(msg){
     if(msg.from === clientId)
         return;
 
-    // OFFER
+    /*
+    OFFER
+    */
 
     if(msg.type === "offer"){
 
@@ -344,10 +294,14 @@ async function handleSignal(msg){
 
         await pc.setRemoteDescription(
 
-            new RTCSessionDescription(msg.data)
+            new RTCSessionDescription(
+                msg.data
+            )
         );
 
-        // 补加缓存 ICE
+        /*
+        把缓存 ICE 补进去
+        */
 
         for(let ice of pendingIce){
 
@@ -355,7 +309,9 @@ async function handleSignal(msg){
 
                 await pc.addIceCandidate(
 
-                    new RTCIceCandidate(ice)
+                    new RTCIceCandidate(
+                        ice
+                    )
                 );
 
             }catch(err){}
@@ -363,10 +319,17 @@ async function handleSignal(msg){
 
         pendingIce = [];
 
+        /*
+        关键：
+        创建 ANSWER
+        */
+
         let answer =
             await pc.createAnswer();
 
-        await pc.setLocalDescription(answer);
+        await pc.setLocalDescription(
+            answer
+        );
 
         log("发送 ANSWER");
 
@@ -378,7 +341,9 @@ async function handleSignal(msg){
         });
     }
 
-    // ANSWER
+    /*
+    ANSWER
+    */
 
     else if(msg.type === "answer"){
 
@@ -389,10 +354,14 @@ async function handleSignal(msg){
 
         await pc.setRemoteDescription(
 
-            new RTCSessionDescription(msg.data)
+            new RTCSessionDescription(
+                msg.data
+            )
         );
 
-        // 补加缓存 ICE
+        /*
+        补缓存 ICE
+        */
 
         for(let ice of pendingIce){
 
@@ -400,7 +369,9 @@ async function handleSignal(msg){
 
                 await pc.addIceCandidate(
 
-                    new RTCIceCandidate(ice)
+                    new RTCIceCandidate(
+                        ice
+                    )
                 );
 
             }catch(err){}
@@ -409,38 +380,49 @@ async function handleSignal(msg){
         pendingIce = [];
     }
 
-    // ICE
+    /*
+    ICE
+    */
 
     else if(msg.type === "ice"){
 
-        if(pc.remoteDescription){
+        /*
+        remoteDescription
+        还没建立
+        */
 
-            try{
+        if(!pc.remoteDescription){
 
-                await pc.addIceCandidate(
-
-                    new RTCIceCandidate(msg.data)
-                );
-
-                log("添加 ICE");
-
-            }catch(err){
-
-                log("ICE 添加失败");
-            }
-
-        }else{
-
-            pendingIce.push(msg.data);
+            pendingIce.push(
+                msg.data
+            );
 
             log("缓存 ICE");
+
+            return;
+        }
+
+        try{
+
+            await pc.addIceCandidate(
+
+                new RTCIceCandidate(
+                    msg.data
+                )
+            );
+
+            log("添加 ICE");
+
+        }catch(err){
+
+            log("ICE失败");
         }
     }
 }
 
 async function pollSignals(){
 
-    log("开始轮询信令");
+    log("开始轮询");
 
     setInterval(async ()=>{
 
@@ -448,85 +430,44 @@ async function pollSignals(){
 
             let comments =
                 await api(
-                    `/issues/${roomNumber}/comments`
-                );
 
-            // 先排序
+                    `/issues/${ISSUE_NUMBER}/comments`
+                );
 
             comments.sort((a,b)=>{
 
                 return a.id - b.id;
             });
 
-            // 第一轮：
-            // 先处理 offer/answer
-
             for(let c of comments){
 
-                if(processedComments.has(c.id))
+                if(processed.has(c.id))
                     continue;
+
+                processed.add(c.id);
 
                 try{
 
                     let msg =
                         JSON.parse(c.body);
 
-                    if(
-                        msg.type === "offer" ||
-                        msg.type === "answer"
-                    ){
+                    await handleSignal(
+                        msg
+                    );
 
-                        await handleSignal(msg);
+                    /*
+                    阅后即焚
+                    */
 
-                        processedComments.add(c.id);
+                    await fetch(
 
-                        // 删除评论
+                        c.url,
 
-                        await fetch(
-
-                            c.url,
-
-                            {
-                                method:"DELETE",
-                                headers:headers()
-                            }
-                        );
-                    }
-
-                }catch(err){}
-            }
-
-            // 第二轮：
-            // 再处理 ICE
-
-            for(let c of comments){
-
-                if(processedComments.has(c.id))
-                    continue;
-
-                try{
-
-                    let msg =
-                        JSON.parse(c.body);
-
-                    if(msg.type === "ice"){
-
-                        await handleSignal(msg);
-
-                        processedComments.add(c.id);
-
-                        // 删除评论
-
-                        await fetch(
-
-                            c.url,
-
-                            {
-                                method:"DELETE",
-                                headers:headers()
-                            }
-                        );
-                    }
+                        {
+                            method:"DELETE",
+                            headers:headers()
+                        }
+                    );
 
                 }catch(err){}
             }
@@ -536,13 +477,15 @@ async function pollSignals(){
             log("轮询失败");
         }
 
-    },1500);
+    },1000);
 }
 
 function sendMsg(){
 
     let input =
-        document.getElementById("msgInput");
+        document.getElementById(
+            "msgInput"
+        );
 
     if(
         dc &&
@@ -551,7 +494,8 @@ function sendMsg(){
 
         dc.send(input.value);
 
-        log("我: " + input.value);
+        log("我: " +
+            input.value);
 
         input.value = "";
     }
