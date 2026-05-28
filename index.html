@@ -11,7 +11,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<title>GitHub WebRTC Comment Signal v4</title>
+<title>GitHub WebRTC 评论信令</title>
 
 <style>
 
@@ -53,7 +53,7 @@ input{
 </head>
 <body>
 
-<h2>GitHub Comment WebRTC v4</h2>
+<h2>GitHub WebRTC 评论信令</h2>
 
 <div>
 GitHub Token:
@@ -88,21 +88,18 @@ const REPO = "mengdaodaomeng.github.io";
 
 /*
 固定使用 #50
-不再创建/删除 Issue
 */
 const ISSUE_NUMBER = 50;
 
 let pc;
 let dc;
 
-let clientId =
-    Math.random().toString(36).substring(2);
+let pendingIce = [];
 
 let processed = new Set();
 
-let pendingIce = [];
-
-let isCaller = false;
+const clientId =
+    Math.random().toString(36).substring(2);
 
 const logDiv =
     document.getElementById("log");
@@ -162,14 +159,18 @@ function createPeer(){
 
     pc.onconnectionstatechange = ()=>{
 
-        log("连接状态: " +
-            pc.connectionState);
+        log(
+            "连接状态: " +
+            pc.connectionState
+        );
     };
 
     pc.oniceconnectionstatechange = ()=>{
 
-        log("ICE状态: " +
-            pc.iceConnectionState);
+        log(
+            "ICE状态: " +
+            pc.iceConnectionState
+        );
     };
 
     pc.onicecandidate = async e => {
@@ -235,8 +236,6 @@ async function sendSignal(obj){
 
 async function createRoom(){
 
-    isCaller = true;
-
     createPeer();
 
     dc =
@@ -267,8 +266,6 @@ async function createRoom(){
 
 async function joinRoom(){
 
-    isCaller = false;
-
     createPeer();
 
     log("加入房间");
@@ -278,8 +275,16 @@ async function joinRoom(){
 
 async function handleSignal(msg){
 
-    if(msg.from === clientId)
-        return;
+    /*
+    自己的消息：
+    不处理
+    不删除
+    */
+
+    if(msg.from === clientId){
+
+        return false;
+    }
 
     /*
     OFFER
@@ -287,8 +292,10 @@ async function handleSignal(msg){
 
     if(msg.type === "offer"){
 
-        if(pc.remoteDescription)
-            return;
+        if(pc.remoteDescription){
+
+            return false;
+        }
 
         log("收到 OFFER");
 
@@ -300,7 +307,7 @@ async function handleSignal(msg){
         );
 
         /*
-        把缓存 ICE 补进去
+        添加缓存 ICE
         */
 
         for(let ice of pendingIce){
@@ -320,7 +327,6 @@ async function handleSignal(msg){
         pendingIce = [];
 
         /*
-        关键：
         创建 ANSWER
         */
 
@@ -339,6 +345,8 @@ async function handleSignal(msg){
 
             data:answer
         });
+
+        return true;
     }
 
     /*
@@ -347,8 +355,10 @@ async function handleSignal(msg){
 
     else if(msg.type === "answer"){
 
-        if(pc.remoteDescription)
-            return;
+        if(pc.remoteDescription){
+
+            return false;
+        }
 
         log("收到 ANSWER");
 
@@ -360,7 +370,7 @@ async function handleSignal(msg){
         );
 
         /*
-        补缓存 ICE
+        添加缓存 ICE
         */
 
         for(let ice of pendingIce){
@@ -378,6 +388,8 @@ async function handleSignal(msg){
         }
 
         pendingIce = [];
+
+        return true;
     }
 
     /*
@@ -388,7 +400,7 @@ async function handleSignal(msg){
 
         /*
         remoteDescription
-        还没建立
+        未建立
         */
 
         if(!pc.remoteDescription){
@@ -399,7 +411,7 @@ async function handleSignal(msg){
 
             log("缓存 ICE");
 
-            return;
+            return true;
         }
 
         try{
@@ -417,7 +429,11 @@ async function handleSignal(msg){
 
             log("ICE失败");
         }
+
+        return true;
     }
+
+    return false;
 }
 
 async function pollSignals(){
@@ -451,23 +467,28 @@ async function pollSignals(){
                     let msg =
                         JSON.parse(c.body);
 
-                    await handleSignal(
-                        msg
-                    );
+                    let handled =
+                        await handleSignal(
+                            msg
+                        );
 
                     /*
-                    阅后即焚
+                    谁消费
+                    谁删除
                     */
 
-                    await fetch(
+                    if(handled){
 
-                        c.url,
+                        await fetch(
 
-                        {
-                            method:"DELETE",
-                            headers:headers()
-                        }
-                    );
+                            c.url,
+
+                            {
+                                method:"DELETE",
+                                headers:headers()
+                            }
+                        );
+                    }
 
                 }catch(err){}
             }
@@ -494,8 +515,10 @@ function sendMsg(){
 
         dc.send(input.value);
 
-        log("我: " +
-            input.value);
+        log(
+            "我: " +
+            input.value
+        );
 
         input.value = "";
     }
