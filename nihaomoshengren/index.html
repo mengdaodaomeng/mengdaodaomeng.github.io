@@ -1,0 +1,828 @@
+```html
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+
+<meta charset="UTF-8">
+
+<!-- 禁止缓存 -->
+<meta http-equiv="Cache-Control"
+content="no-cache, no-store, must-revalidate">
+
+<meta http-equiv="Pragma"
+content="no-cache">
+
+<meta http-equiv="Expires"
+content="0">
+
+<meta name="viewport"
+content="width=device-width, initial-scale=1.0">
+
+<title>GitHub WebRTC 评论信令</title>
+
+<style>
+
+body{
+    background:#111;
+    color:white;
+    font-family:Arial;
+    padding:20px;
+}
+
+input,button{
+    padding:10px;
+    margin:5px;
+    border:none;
+    border-radius:8px;
+}
+
+button{
+    background:#2d89ff;
+    color:white;
+}
+
+input{
+    width:260px;
+}
+
+#log{
+    margin-top:20px;
+    border:1px solid #444;
+    background:#000;
+    padding:10px;
+    height:350px;
+    overflow:auto;
+    white-space:pre-wrap;
+}
+
+</style>
+
+</head>
+<body>
+
+<h2>
+GitHub WebRTC 评论信令
+</h2>
+
+<div>
+GitHub Token:
+<br>
+
+<input
+    id="token"
+    type="password"
+    placeholder="输入 GitHub Token">
+
+</div>
+
+<br>
+
+<button onclick="saveToken()">
+保存Token
+</button>
+
+<button onclick="clearToken()">
+清除Token
+</button>
+
+<hr>
+
+<button onclick="createRoom()">
+创建房间
+</button>
+
+<button onclick="joinRoom()">
+加入房间
+</button>
+
+<hr>
+
+<input
+    id="msgInput"
+    placeholder="输入消息">
+
+<button onclick="sendMsg()">
+发送
+</button>
+
+<div id="log"></div>
+
+<script>
+
+/*
+====================================
+配置
+====================================
+*/
+
+const OWNER =
+    "mengdaodaomeng";
+
+const REPO =
+    "mengdaodaomeng.github.io";
+
+/*
+固定 Issue #50
+*/
+
+const ISSUE_NUMBER = 50;
+
+/*
+====================================
+变量
+====================================
+*/
+
+let pc;
+let dc;
+
+let polling = false;
+
+let pendingIce = [];
+
+let processed = new Set();
+
+const clientId =
+    Math.random()
+    .toString(36)
+    .substring(2);
+
+const logDiv =
+    document.getElementById("log");
+
+/*
+====================================
+日志
+====================================
+*/
+
+function log(msg){
+
+    console.log(msg);
+
+    logDiv.innerHTML +=
+        msg + "\n";
+
+    logDiv.scrollTop =
+        logDiv.scrollHeight;
+}
+
+/*
+====================================
+Token缓存
+====================================
+*/
+
+function saveToken(){
+
+    let token =
+        document.getElementById(
+            "token"
+        ).value;
+
+    localStorage.setItem(
+        "github_token",
+        token
+    );
+
+    log("Token已保存");
+}
+
+function loadToken(){
+
+    let token =
+        localStorage.getItem(
+            "github_token"
+        );
+
+    if(token){
+
+        document.getElementById(
+            "token"
+        ).value = token;
+
+        log("Token已加载");
+    }
+}
+
+function clearToken(){
+
+    localStorage.removeItem(
+        "github_token"
+    );
+
+    document.getElementById(
+        "token"
+    ).value = "";
+
+    log("Token已清除");
+}
+
+/*
+====================================
+Headers
+====================================
+*/
+
+function headers(){
+
+    return {
+
+        "Authorization":
+            "token " +
+            document.getElementById(
+                "token"
+            ).value,
+
+        "Accept":
+            "application/vnd.github+json"
+    };
+}
+
+/*
+====================================
+GitHub API
+====================================
+*/
+
+async function api(
+    path,
+    method="GET",
+    body=null
+){
+
+    try{
+
+        let r = await fetch(
+
+            `https://api.github.com/repos/${OWNER}/${REPO}${path}`,
+
+            {
+                method:method,
+
+                headers:headers(),
+
+                body: body
+                    ? JSON.stringify(body)
+                    : null
+            }
+        );
+
+        /*
+        DELETE 没JSON
+        */
+
+        if(method === "DELETE"){
+
+            return {};
+        }
+
+        let data =
+            await r.json();
+
+        return data;
+
+    }catch(err){
+
+        log(
+            "API失败: " +
+            err
+        );
+
+        return null;
+    }
+}
+
+/*
+====================================
+WebRTC
+====================================
+*/
+
+function createPeer(){
+
+    pc = new RTCPeerConnection({
+
+        iceServers:[
+            {
+                urls:
+                "stun:stun.l.google.com:19302"
+            }
+        ]
+    });
+
+    pc.onconnectionstatechange = ()=>{
+
+        log(
+            "连接状态: " +
+            pc.connectionState
+        );
+    };
+
+    pc.oniceconnectionstatechange = ()=>{
+
+        log(
+            "ICE状态: " +
+            pc.iceConnectionState
+        );
+    };
+
+    /*
+    ICE
+    */
+
+    pc.onicecandidate =
+    async e => {
+
+        if(!e.candidate)
+            return;
+
+        log("发送 ICE");
+
+        await sendSignal({
+
+            type:"ice",
+
+            data:e.candidate
+        });
+    };
+
+    /*
+    DataChannel
+    */
+
+    pc.ondatachannel = e => {
+
+        log("收到DataChannel");
+
+        dc = e.channel;
+
+        setupChannel();
+    };
+}
+
+/*
+====================================
+数据通道
+====================================
+*/
+
+function setupChannel(){
+
+    dc.onopen = ()=>{
+
+        log(
+            "数据通道已连接"
+        );
+    };
+
+    dc.onclose = ()=>{
+
+        log(
+            "数据通道关闭"
+        );
+    };
+
+    dc.onmessage = e => {
+
+        log(
+            "对方: " +
+            e.data
+        );
+    };
+}
+
+/*
+====================================
+发送信令
+====================================
+*/
+
+async function sendSignal(obj){
+
+    obj.from =
+        clientId;
+
+    obj.time =
+        Date.now();
+
+    await api(
+
+        `/issues/${ISSUE_NUMBER}/comments`,
+
+        "POST",
+
+        {
+            body:JSON.stringify(obj)
+        }
+    );
+}
+
+/*
+====================================
+创建房间
+====================================
+*/
+
+async function createRoom(){
+
+    createPeer();
+
+    dc =
+        pc.createDataChannel(
+            "chat"
+        );
+
+    setupChannel();
+
+    log("创建房间");
+
+    let offer =
+        await pc.createOffer();
+
+    await pc.setLocalDescription(
+        offer
+    );
+
+    log("发送 OFFER");
+
+    await sendSignal({
+
+        type:"offer",
+
+        data:offer
+    });
+
+    pollSignals();
+}
+
+/*
+====================================
+加入房间
+====================================
+*/
+
+async function joinRoom(){
+
+    createPeer();
+
+    log("加入房间");
+
+    pollSignals();
+}
+
+/*
+====================================
+处理信令
+====================================
+*/
+
+async function handleSignal(msg){
+
+    /*
+    自己消息不处理
+    */
+
+    if(msg.from === clientId){
+
+        return false;
+    }
+
+    /*
+    OFFER
+    */
+
+    if(msg.type === "offer"){
+
+        if(pc.remoteDescription){
+
+            return false;
+        }
+
+        log("收到 OFFER");
+
+        await pc.setRemoteDescription(
+
+            new RTCSessionDescription(
+                msg.data
+            )
+        );
+
+        /*
+        补缓存ICE
+        */
+
+        for(let ice of pendingIce){
+
+            try{
+
+                await pc.addIceCandidate(
+
+                    new RTCIceCandidate(
+                        ice
+                    )
+                );
+
+            }catch(err){}
+        }
+
+        pendingIce = [];
+
+        /*
+        创建 ANSWER
+        */
+
+        let answer =
+            await pc.createAnswer();
+
+        await pc.setLocalDescription(
+            answer
+        );
+
+        log("发送 ANSWER");
+
+        await sendSignal({
+
+            type:"answer",
+
+            data:answer
+        });
+
+        return true;
+    }
+
+    /*
+    ANSWER
+    */
+
+    else if(msg.type === "answer"){
+
+        if(pc.remoteDescription){
+
+            return false;
+        }
+
+        log("收到 ANSWER");
+
+        await pc.setRemoteDescription(
+
+            new RTCSessionDescription(
+                msg.data
+            )
+        );
+
+        /*
+        补缓存ICE
+        */
+
+        for(let ice of pendingIce){
+
+            try{
+
+                await pc.addIceCandidate(
+
+                    new RTCIceCandidate(
+                        ice
+                    )
+                );
+
+            }catch(err){}
+        }
+
+        pendingIce = [];
+
+        return true;
+    }
+
+    /*
+    ICE
+    */
+
+    else if(msg.type === "ice"){
+
+        /*
+        remoteDescription
+        还没建立
+        */
+
+        if(!pc.remoteDescription){
+
+            pendingIce.push(
+                msg.data
+            );
+
+            log("缓存 ICE");
+
+            return true;
+        }
+
+        try{
+
+            await pc.addIceCandidate(
+
+                new RTCIceCandidate(
+                    msg.data
+                )
+            );
+
+            log("添加 ICE");
+
+        }catch(err){
+
+            log(
+                "ICE失败: " +
+                err
+            );
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+/*
+====================================
+轮询
+====================================
+*/
+
+function pollSignals(){
+
+    log("开始轮询");
+
+    setInterval(async ()=>{
+
+        /*
+        防止重复轮询
+        */
+
+        if(polling)
+            return;
+
+        polling = true;
+
+        try{
+
+            let comments =
+                await api(
+
+                    `/issues/${ISSUE_NUMBER}/comments`
+                );
+
+            /*
+            GitHub错误
+            */
+
+            if(
+                !Array.isArray(
+                    comments
+                )
+            ){
+
+                log(
+
+                    "GitHub错误: " +
+
+                    JSON.stringify(
+                        comments
+                    )
+                );
+
+                polling = false;
+
+                return;
+            }
+
+            /*
+            排序
+            */
+
+            comments.sort((a,b)=>{
+
+                return a.id - b.id;
+            });
+
+            /*
+            遍历评论
+            */
+
+            for(let c of comments){
+
+                /*
+                已处理
+                */
+
+                if(
+                    processed.has(c.id)
+                ){
+                    continue;
+                }
+
+                try{
+
+                    let msg =
+                        JSON.parse(
+                            c.body
+                        );
+
+                    let handled =
+                        await handleSignal(
+                            msg
+                        );
+
+                    /*
+                    处理成功
+                    */
+
+                    processed.add(
+                        c.id
+                    );
+
+                    /*
+                    谁消费
+                    谁删除
+                    */
+
+                    if(handled){
+
+                        await fetch(
+
+                            c.url,
+
+                            {
+                                method:
+                                    "DELETE",
+
+                                headers:
+                                    headers()
+                            }
+                        );
+                    }
+
+                }catch(err){
+
+                    log(
+                        "消息错误: " +
+                        err
+                    );
+                }
+            }
+
+        }catch(err){
+
+            log(
+                "轮询失败: " +
+                err
+            );
+        }
+
+        polling = false;
+
+    },3000);
+}
+
+/*
+====================================
+发送消息
+====================================
+*/
+
+function sendMsg(){
+
+    let input =
+        document.getElementById(
+            "msgInput"
+        );
+
+    if(
+        dc &&
+        dc.readyState === "open"
+    ){
+
+        dc.send(
+            input.value
+        );
+
+        log(
+            "我: " +
+            input.value
+        );
+
+        input.value = "";
+    }
+}
+
+/*
+====================================
+启动
+====================================
+*/
+
+loadToken();
+
+</script>
+
+</body>
+</html>
+```
