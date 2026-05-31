@@ -1,71 +1,222 @@
 <!DOCTYPE html>
 <html lang="zh">
 <head>
-  <meta charset="UTF-8">
-  <title>Gist API Test</title>
+<meta charset="UTF-8">
+<title>GitHub Gist API</title>
+<style>
+body{
+    font-family:Arial;
+    padding:20px;
+}
+input,button{
+    margin:5px;
+    padding:8px;
+}
+input{
+    width:500px;
+}
+pre{
+    background:#f0f0f0;
+    padding:10px;
+    white-space:pre-wrap;
+}
+</style>
 </head>
-<body style="font-family: Arial; padding: 20px;">
+<body>
 
-  <h3>GitHub Gist 创建测试</h3>
+<h2>GitHub Gist API 测试</h2>
 
-  <input id="token" type="password" placeholder="输入 GitHub Token"
-         style="width: 300px; padding: 8px;" />
+<div>
+    <input id="token" type="password"
+           placeholder="GitHub Token">
+</div>
 
-  <button onclick="createGist()" style="padding: 8px 12px;">
-    测试创建 Gist
-  </button>
+<div>
+    <input id="gistId"
+           placeholder="Gist ID">
+</div>
 
-  <pre id="result" style="margin-top:20px; background:#f4f4f4; padding:10px;"></pre>
+<div>
+    <button onclick="createGist()">创建</button>
+    <button onclick="readGist()">读取</button>
+    <button onclick="updateGist()">更新</button>
+    <button onclick="deleteGist()">删除</button>
+</div>
 
-  <script>
-    async function createGist() {
-      const token = document.getElementById("token").value;
-      const result = document.getElementById("result");
+<pre id="result"></pre>
 
-      if (!token) {
-        result.innerText = "请输入 token";
-        return;
-      }
+<script>
 
-      const url = "https://api.github.com/gists";
+function log(msg){
+    document.getElementById("result").textContent =
+        typeof msg === "string"
+        ? msg
+        : JSON.stringify(msg,null,2);
+}
 
-      const data = {
-        description: "auto created gist",
-        public: false,
-        files: {
-          "offer.json": {
-            content: JSON.stringify({
-              message: "hello gist",
-              time: new Date().toISOString()
-            }, null, 2)
-          }
+function getToken(){
+    return document.getElementById("token").value.trim();
+}
+
+function getGistId(){
+    return document.getElementById("gistId").value.trim();
+}
+
+async function createGist(){
+
+    const token=getToken();
+
+    const body={
+        description:"WebRTC Offer",
+        public:false,
+        files:{
+            "offer.json":{
+                content:JSON.stringify({
+                    type:"offer",
+                    time:Date.now(),
+                    message:"hello"
+                },null,2)
+            }
         }
-      };
+    };
 
-      try {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: {
-            "Authorization": "token " + token,
-            "Accept": "application/vnd.github+json",
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify(data)
+    const res=await fetch(
+        "https://api.github.com/gists",
+        {
+            method:"POST",
+            headers:{
+                Authorization:"token "+token,
+                Accept:"application/vnd.github+json",
+                "Content-Type":"application/json"
+            },
+            body:JSON.stringify(body)
+        }
+    );
+
+    const json=await res.json();
+
+    if(res.ok){
+
+        document.getElementById("gistId").value =
+            json.id;
+
+        log({
+            status:"创建成功",
+            gistId:json.id,
+            url:json.html_url
         });
 
-        const json = await res.json();
+    }else{
+        log(json);
+    }
+}
 
-        if (res.ok) {
-          result.innerText = "创建成功：\n" + json.html_url;
-        } else {
-          result.innerText = "失败：\n" + JSON.stringify(json, null, 2);
+async function readGist(){
+
+    const token=getToken();
+    const gistId=getGistId();
+
+    const res=await fetch(
+        "https://api.github.com/gists/"+gistId,
+        {
+            headers:{
+                Authorization:"token "+token,
+                Accept:"application/vnd.github+json"
+            }
+        }
+    );
+
+    const json=await res.json();
+
+    if(res.ok){
+
+        const file=json.files["offer.json"];
+
+        if(file){
+            log(file.content);
+        }else{
+            log("offer.json不存在");
         }
 
-      } catch (err) {
-        result.innerText = "请求错误：\n" + err;
-      }
+    }else{
+        log(json);
     }
-  </script>
+}
+
+async function updateGist(){
+
+    const token=getToken();
+    const gistId=getGistId();
+
+    const body={
+        files:{
+            "offer.json":{
+                content:JSON.stringify({
+                    type:"offer",
+                    updated:true,
+                    time:Date.now()
+                },null,2)
+            }
+        }
+    };
+
+    const res=await fetch(
+        "https://api.github.com/gists/"+gistId,
+        {
+            method:"PATCH",
+            headers:{
+                Authorization:"token "+token,
+                Accept:"application/vnd.github+json",
+                "Content-Type":"application/json"
+            },
+            body:JSON.stringify(body)
+        }
+    );
+
+    const json=await res.json();
+
+    if(res.ok){
+        log("更新成功");
+    }else{
+        log(json);
+    }
+}
+
+async function deleteGist(){
+
+    const token=getToken();
+    const gistId=getGistId();
+
+    const ok=confirm("确定删除？");
+
+    if(!ok)return;
+
+    const res=await fetch(
+        "https://api.github.com/gists/"+gistId,
+        {
+            method:"DELETE",
+            headers:{
+                Authorization:"token "+token,
+                Accept:"application/vnd.github+json"
+            }
+        }
+    );
+
+    if(res.status===204){
+
+        log("删除成功");
+
+        document.getElementById("gistId").value="";
+
+    }else{
+
+        const txt=await res.text();
+
+        log(txt);
+    }
+}
+
+</script>
 
 </body>
 </html>
