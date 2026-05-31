@@ -1,0 +1,413 @@
+/*
+====================================
+基础
+====================================
+*/
+
+*{
+    box-sizing:border-box;
+}
+
+html,
+body{
+
+    margin:0;
+    padding:0;
+
+    background:#111;
+
+    color:#fff;
+
+    font-family:
+
+        Arial,
+        Helvetica,
+        sans-serif;
+}
+
+/*
+====================================
+布局
+====================================
+*/
+
+.container{
+
+    max-width:900px;
+
+    margin:auto;
+
+    padding:15px;
+}
+
+h2{
+
+    text-align:center;
+
+    margin-bottom:20px;
+}
+
+h3{
+
+    margin-top:0;
+}
+
+/*
+====================================
+卡片
+====================================
+*/
+
+.card{
+
+    background:#1b1b1b;
+
+    border:1px solid #333;
+
+    border-radius:12px;
+
+    padding:15px;
+
+    margin-bottom:15px;
+}
+
+/*
+====================================
+输入框
+====================================
+*/
+
+input{
+
+    width:100%;
+
+    padding:12px;
+
+    border:none;
+
+    border-radius:8px;
+
+    background:#2a2a2a;
+
+    color:white;
+
+    margin-top:5px;
+}
+
+input:focus{
+
+    outline:none;
+
+    background:#333;
+}
+
+/*
+====================================
+按钮
+====================================
+*/
+
+button{
+
+    border:none;
+
+    border-radius:8px;
+
+    padding:10px 14px;
+
+    cursor:pointer;
+
+    background:#2d89ff;
+
+    color:white;
+
+    transition:0.2s;
+}
+
+button:hover{
+
+    opacity:0.9;
+}
+
+button:active{
+
+    transform:scale(0.97);
+}
+
+/*
+====================================
+横向布局
+====================================
+*/
+
+.row{
+
+    display:flex;
+
+    gap:10px;
+
+    flex-wrap:wrap;
+
+    margin-top:10px;
+}
+
+.row button{
+
+    flex:1;
+}
+
+.row input{
+
+    flex:1;
+}
+
+/*
+====================================
+信息栏
+====================================
+*/
+
+.info{
+
+    margin-top:10px;
+
+    line-height:2;
+}
+
+.info span{
+
+    color:#66ccff;
+
+    word-break:break-all;
+}
+
+/*
+====================================
+二维码
+====================================
+*/
+
+#roomQr{
+
+    background:white;
+
+    padding:10px;
+
+    border-radius:10px;
+
+    display:block;
+
+    margin:auto;
+}
+
+/*
+====================================
+在线节点
+====================================
+*/
+
+#peerList{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:8px;
+}
+
+.peer-item{
+
+    background:#222;
+
+    border:1px solid #444;
+
+    border-radius:8px;
+
+    padding:10px;
+}
+
+.peer-online{
+
+    color:#4cff4c;
+}
+
+.peer-offline{
+
+    color:#ff5555;
+}
+
+/*
+====================================
+聊天窗口
+====================================
+*/
+
+#chatBox{
+
+    margin-top:10px;
+
+    height:260px;
+
+    overflow-y:auto;
+
+    border:1px solid #444;
+
+    border-radius:10px;
+
+    background:#000;
+
+    padding:10px;
+}
+
+.chat-msg{
+
+    margin-bottom:8px;
+
+    padding:8px;
+
+    border-radius:8px;
+
+    word-break:break-word;
+}
+
+.chat-self{
+
+    background:#004080;
+}
+
+.chat-peer{
+
+    background:#333;
+}
+
+.chat-system{
+
+    background:#444;
+
+    color:#ffcc66;
+}
+
+/*
+====================================
+日志窗口
+====================================
+*/
+
+#logBox{
+
+    height:260px;
+
+    overflow-y:auto;
+
+    background:#000;
+
+    border:1px solid #444;
+
+    border-radius:10px;
+
+    padding:10px;
+
+    white-space:pre-wrap;
+
+    word-break:break-word;
+
+    font-size:13px;
+}
+
+.log-info{
+
+    color:#66ccff;
+}
+
+.log-success{
+
+    color:#55ff55;
+}
+
+.log-error{
+
+    color:#ff6666;
+}
+
+.log-warning{
+
+    color:#ffaa33;
+}
+
+/*
+====================================
+状态颜色
+====================================
+*/
+
+.status-online{
+
+    color:#55ff55;
+}
+
+.status-offline{
+
+    color:#ff5555;
+}
+
+.status-wait{
+
+    color:#ffcc00;
+}
+
+/*
+====================================
+滚动条
+====================================
+*/
+
+::-webkit-scrollbar{
+
+    width:8px;
+}
+
+::-webkit-scrollbar-track{
+
+    background:#111;
+}
+
+::-webkit-scrollbar-thumb{
+
+    background:#444;
+
+    border-radius:4px;
+}
+
+::-webkit-scrollbar-thumb:hover{
+
+    background:#666;
+}
+
+/*
+====================================
+手机优化
+====================================
+*/
+
+@media(max-width:700px){
+
+    .row{
+
+        flex-direction:column;
+    }
+
+    button{
+
+        width:100%;
+    }
+
+    #chatBox{
+
+        height:220px;
+    }
+
+    #logBox{
+
+        height:220px;
+    }
+}
