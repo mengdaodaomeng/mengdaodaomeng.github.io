@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>Gist API Test</title>
+</head>
+<body style="font-family: Arial; padding: 20px;">
+
+  <h3>GitHub Gist 创建测试</h3>
+
+  <input id="token" type="password" placeholder="输入 GitHub Token"
+         style="width: 300px; padding: 8px;" />
+
+  <button onclick="createGist()" style="padding: 8px 12px;">
+    测试创建 Gist
+  </button>
+
+  <pre id="result" style="margin-top:20px; background:#f4f4f4; padding:10px;"></pre>
+
+  <script>
+    async function createGist() {
+      const token = document.getElementById("token").value;
+      const result = document.getElementById("result");
+
+      if (!token) {
+        result.innerText = "请输入 token";
+        return;
+      }
+
+      const url = "https://api.github.com/gists";
+
+      const data = {
+        description: "auto created gist",
+        public: false,
+        files: {
+          "offer.json": {
+            content: JSON.stringify({
+              message: "hello gist",
+              time: new Date().toISOString()
+            }, null, 2)
+          }
+        }
+      };
+
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Authorization": "token " + token,
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(data)
+        });
+
+        const json = await res.json();
+
+        if (res.ok) {
+          result.innerText = "创建成功：\n" + json.html_url;
+        } else {
+          result.innerText = "失败：\n" + JSON.stringify(json, null, 2);
+        }
+
+      } catch (err) {
+        result.innerText = "请求错误：\n" + err;
+      }
+    }
+  </script>
+
+</body>
+</html>
