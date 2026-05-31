@@ -2,43 +2,47 @@
 <html>
 <head>
 <meta charset="utf-8"/>
-<title>v3.0-b P2P Gist WebRTC</title>
+<title>v3.0-b-lite P2P</title>
 <style>
 body{font-family:Arial;padding:10px}
 input,button{margin:5px}
 #log{white-space:pre-wrap;background:#111;color:#0f0;padding:10px;height:300px;overflow:auto}
-.green{color:lime}
 </style>
 </head>
 <body>
 
-<h3>v3.0-b WebRTC + Gist信令</h3>
+<h3>v3.0-b-lite（自动房间 + P2P）</h3>
 
-<input id="token" placeholder="GitHub Token" style="width:300px"><br>
-<input id="gistId" placeholder="Gist ID" style="width:300px"><br>
-<input id="peerId" placeholder="Peer ID"><br>
+<input id="token" placeholder="GitHub Token" style="width:320px"><br>
 
-<button onclick="createRoom()">创建房间(房主)</button>
-<button onclick="joinRoom()">加入房间</button>
+<button onclick="start()">启动 / 自动加入网络</button>
 <button onclick="sendChat()">发送消息</button>
 
-<div id="status"></div>
 <div id="log"></div>
 
 <script>
 
-let token="", gist="", myId="", remoteId="";
+let token="";
+let gistId="";
+let myId="";
+let remoteId="";
 let isHost=false;
-let pc=null, dc=null;
+
+let pc=null;
+let dc=null;
 
 let processed=new Set();
-let pendingIce=[];
 
 const log=t=>{
   document.getElementById("log").innerText+=t+"\n";
 };
 
-function github(url,method="GET",body=null){
+function randId(){
+  return "peer_"+Math.random().toString(36).substr(2,8);
+}
+
+async function github(url,method="GET",body=null){
+
   return fetch(url,{
     method,
     headers:{
@@ -49,9 +53,34 @@ function github(url,method="GET",body=null){
   }).then(r=>r.json());
 }
 
+async function createRoom(){
+
+  let res=await github(
+    "https://api.github.com/gists",
+    "POST",
+    {
+      description:"room for anyone",
+      public:false,
+      files:{
+        "room.json":{
+          content:JSON.stringify({
+            type:"room",
+            name:"room for anyone"
+          })
+        }
+      }
+    }
+  );
+
+  gistId=res.id;
+
+  log("创建房间:"+gistId);
+}
+
 async function sendSignal(data){
-  return github(
-    `https://api.github.com/gists/${gist}/comments`,
+
+  await github(
+    `https://api.github.com/gists/${gistId}/comments`,
     "POST",
     {body:JSON.stringify(data)}
   );
@@ -77,10 +106,6 @@ function setupPC(){
     });
   };
 
-  pc.onconnectionstatechange=()=>{
-    log("PC:"+pc.connectionState);
-  };
-
   pc.ondatachannel=e=>{
     dc=e.channel;
     bindDC();
@@ -90,7 +115,7 @@ function setupPC(){
 function bindDC(){
 
   dc.onopen=()=>{
-    log("DataChannel OPEN");
+    log("✔ DataChannel OPEN");
   };
 
   dc.onmessage=e=>{
@@ -98,43 +123,28 @@ function bindDC(){
   };
 }
 
-async function createRoom(){
+async function start(){
 
   token=document.getElementById("token").value;
-  gist=document.getElementById("gistId").value;
-  myId=document.getElementById("peerId").value;
+
+  myId=randId();
+
+  log("我的ID:"+myId);
+
+  await createRoom();
 
   isHost=true;
 
-  log("房主启动:"+myId);
-
-}
-
-async function joinRoom(){
-
-  token=document.getElementById("token").value;
-  gist=document.getElementById("gistId").value;
-  myId=document.getElementById("peerId").value;
-
-  isHost=false;
-
-  log("加入房间:"+myId);
-
-  await sendSignal({
-    msgId:crypto.randomUUID(),
-    type:"join",
-    from:myId
-  });
-
   poll();
+
 }
 
-function poll(){
+async function poll(){
 
   setInterval(async()=>{
 
     let res=await github(
-      `https://api.github.com/gists/${gist}/comments`
+      `https://api.github.com/gists/${gistId}/comments`
     );
 
     for(let c of res){
@@ -154,29 +164,35 @@ function poll(){
       switch(data.type){
 
         case "join":
-          if(isHost){
-            handleJoin(data);
-          }
+          if(isHost) handleJoin(data);
           break;
 
         case "offer":
-          if(data.to===myId)
-            handleOffer(data);
+          if(data.to===myId) handleOffer(data);
           break;
 
         case "answer":
-          if(data.to===myId)
-            handleAnswer(data);
+          if(data.to===myId) handleAnswer(data);
           break;
 
         case "candidate":
-          if(data.to===myId)
-            handleCandidate(data);
+          if(data.to===myId) handleCandidate(data);
           break;
       }
     }
 
   },2000);
+}
+
+async function join(){
+
+  await sendSignal({
+    msgId:crypto.randomUUID(),
+    type:"join",
+    from:myId
+  });
+
+  log("发送JOIN");
 }
 
 async function handleJoin(msg){
@@ -193,7 +209,7 @@ async function handleJoin(msg){
   let offer=await pc.createOffer();
   await pc.setLocalDescription(offer);
 
-  sendSignal({
+  await sendSignal({
     msgId:crypto.randomUUID(),
     type:"offer",
     from:myId,
@@ -201,7 +217,7 @@ async function handleJoin(msg){
     sdp:pc.localDescription
   });
 
-  log("Offer已发送");
+  log("发送OFFER");
 }
 
 async function handleOffer(msg){
@@ -210,14 +226,12 @@ async function handleOffer(msg){
 
   setupPC();
 
-  await pc.setRemoteDescription(
-    msg.sdp
-  );
+  await pc.setRemoteDescription(msg.sdp);
 
   let answer=await pc.createAnswer();
   await pc.setLocalDescription(answer);
 
-  sendSignal({
+  await sendSignal({
     msgId:crypto.randomUUID(),
     type:"answer",
     from:myId,
@@ -225,37 +239,34 @@ async function handleOffer(msg){
     sdp:pc.localDescription
   });
 
-  log("Answer已发送");
+  log("发送ANSWER");
 }
 
 async function handleAnswer(msg){
 
   await pc.setRemoteDescription(msg.sdp);
 
-  log("Answer已应用");
+  log("✔ CONNECTED (answer applied)");
 }
 
 async function handleCandidate(msg){
 
   try{
     await pc.addIceCandidate(msg.candidate);
-  }catch(e){
-    pendingIce.push(msg.candidate);
-  }
+  }catch(e){}
 }
 
 function sendChat(){
 
-  let msg="hello "+Date.now();
-
-  if(dc&&dc.readyState==="open"){
-    dc.send(msg);
-    log("[ME] "+msg);
+  if(dc && dc.readyState==="open"){
+    dc.send("hello "+Date.now());
+    log("[ME] message sent");
   }else{
     log("未连接");
   }
 }
 
 </script>
+
 </body>
 </html>
