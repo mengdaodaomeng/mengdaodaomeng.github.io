@@ -1,380 +1,261 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html>
 <head>
-<meta charset="UTF-8">
-<title>Gist Signal v3.0-a</title>
-
+<meta charset="utf-8"/>
+<title>v3.0-b P2P Gist WebRTC</title>
 <style>
-body{
-    font-family:Arial;
-    padding:15px;
-}
-
-input,button{
-    padding:8px;
-    margin:3px;
-}
-
-input{
-    width:100%;
-    box-sizing:border-box;
-}
-
-#log{
-    height:300px;
-    overflow:auto;
-    border:1px solid #ccc;
-    padding:10px;
-    margin-top:10px;
-    background:#fafafa;
-    white-space:pre-wrap;
-}
-
-.green{
-    color:green;
-    font-weight:bold;
-}
-
-.red{
-    color:red;
-    font-weight:bold;
-}
+body{font-family:Arial;padding:10px}
+input,button{margin:5px}
+#log{white-space:pre-wrap;background:#111;color:#0f0;padding:10px;height:300px;overflow:auto}
+.green{color:lime}
 </style>
 </head>
 <body>
 
-<h2>Gist Signal v3.0-a</h2>
+<h3>v3.0-b WebRTC + Gist信令</h3>
 
-Token
+<input id="token" placeholder="GitHub Token" style="width:300px"><br>
+<input id="gistId" placeholder="Gist ID" style="width:300px"><br>
+<input id="peerId" placeholder="Peer ID"><br>
 
-<input id="token" type="password">
+<button onclick="createRoom()">创建房间(房主)</button>
+<button onclick="joinRoom()">加入房间</button>
+<button onclick="sendChat()">发送消息</button>
 
-<button onclick="saveToken()">
-保存Token
-</button>
-
-<hr>
-
-房间名
-
-<input id="roomName" value="TestRoom">
-
-<button onclick="createRoom()">
-创建房间
-</button>
-
-<hr>
-
-Gist ID
-
-<input id="gistId">
-
-<button onclick="joinRoom()">
-加入房间
-</button>
-
-<hr>
-
-我的ID
-
-<input id="peerId">
-
-<button onclick="generatePeerId()">
-生成ID
-</button>
-
-<hr>
-
-消息
-
-<input id="message">
-
-<button onclick="sendChat()">
-发送评论
-</button>
-
-<hr>
-
-状态:
-
-<span id="status" class="red">
-未连接
-</span>
-
-<hr>
-
-最新评论ID:
-
-<span id="lastId">
-0
-</span>
-
+<div id="status"></div>
 <div id="log"></div>
 
 <script>
 
-let polling=null;
-let lastCommentId=0;
+let token="", gist="", myId="", remoteId="";
+let isHost=false;
+let pc=null, dc=null;
 
-window.onload=()=>{
+let processed=new Set();
+let pendingIce=[];
 
-    token.value=
-        localStorage.getItem("github_token")||"";
-
-    peerId.value=
-        "peer_"+Math.random()
-            .toString(36)
-            .substring(2,8);
+const log=t=>{
+  document.getElementById("log").innerText+=t+"\n";
 };
 
-function generatePeerId(){
-
-    peerId.value=
-        "peer_"+Math.random()
-            .toString(36)
-            .substring(2,8);
+function github(url,method="GET",body=null){
+  return fetch(url,{
+    method,
+    headers:{
+      "Authorization":"token "+token,
+      "Content-Type":"application/json"
+    },
+    body:body?JSON.stringify(body):null
+  }).then(r=>r.json());
 }
 
-function saveToken(){
-
-    localStorage.setItem(
-        "github_token",
-        token.value
-    );
-
-    log("Token已保存");
+async function sendSignal(data){
+  return github(
+    `https://api.github.com/gists/${gist}/comments`,
+    "POST",
+    {body:JSON.stringify(data)}
+  );
 }
 
-function log(msg){
+function setupPC(){
 
-    const box=
-        document.getElementById("log");
+  pc=new RTCPeerConnection({
+    iceServers:[
+      {urls:"stun:stun.l.google.com:19302"}
+    ]
+  });
 
-    box.innerHTML +=
-        msg + "<br>";
+  pc.onicecandidate=e=>{
+    if(!e.candidate)return;
 
-    box.scrollTop=
-        box.scrollHeight;
+    sendSignal({
+      msgId:crypto.randomUUID(),
+      type:"candidate",
+      from:myId,
+      to:remoteId,
+      candidate:e.candidate
+    });
+  };
+
+  pc.onconnectionstatechange=()=>{
+    log("PC:"+pc.connectionState);
+  };
+
+  pc.ondatachannel=e=>{
+    dc=e.channel;
+    bindDC();
+  };
 }
 
-async function github(url,method="GET",body=null){
+function bindDC(){
 
-    const res=
-        await fetch(url,{
-            method,
-            headers:{
-                Authorization:
-                    "token "+token.value,
-                Accept:
-                    "application/vnd.github+json",
-                "Content-Type":
-                    "application/json"
-            },
-            body:
-                body
-                ? JSON.stringify(body)
-                : null
-        });
+  dc.onopen=()=>{
+    log("DataChannel OPEN");
+  };
 
-    if(method==="DELETE")
-        return res;
-
-    return await res.json();
+  dc.onmessage=e=>{
+    log("[P2P] "+e.data);
+  };
 }
 
 async function createRoom(){
 
-    try{
+  token=document.getElementById("token").value;
+  gist=document.getElementById("gistId").value;
+  myId=document.getElementById("peerId").value;
 
-        const room={
-            version:"3.0-a",
-            roomName:
-                roomName.value,
-            host:
-                peerId.value,
-            created:
-                Date.now()
-        };
+  isHost=true;
 
-        const gist=
-            await github(
-                "https://api.github.com/gists",
-                "POST",
-                {
-                    public:false,
-                    files:{
-                        "room.json":{
-                            content:
-                                JSON.stringify(
-                                    room,
-                                    null,
-                                    2
-                                )
-                        }
-                    }
-                }
-            );
+  log("房主启动:"+myId);
 
-        gistId.value=
-            gist.id;
-
-        log(
-            "房间创建成功<br>"
-            + gist.id
-        );
-
-        startPolling();
-
-    }catch(e){
-
-        log(
-            "创建失败: "
-            + e
-        );
-    }
 }
 
 async function joinRoom(){
 
-    try{
+  token=document.getElementById("token").value;
+  gist=document.getElementById("gistId").value;
+  myId=document.getElementById("peerId").value;
 
-        await github(
-            `https://api.github.com/gists/${gistId.value}/comments`,
-            "POST",
-            {
-                body:JSON.stringify({
-                    type:"join",
-                    from:peerId.value,
-                    time:Date.now()
-                })
-            }
-        );
+  isHost=false;
 
-        log("已发送join");
+  log("加入房间:"+myId);
 
-        startPolling();
+  await sendSignal({
+    msgId:crypto.randomUUID(),
+    type:"join",
+    from:myId
+  });
 
-    }catch(e){
-
-        log(
-            "加入失败: "
-            + e
-        );
-    }
+  poll();
 }
 
-async function sendChat(){
+function poll(){
 
-    try{
+  setInterval(async()=>{
 
-        await github(
-            `https://api.github.com/gists/${gistId.value}/comments`,
-            "POST",
-            {
-                body:JSON.stringify({
-                    type:"chat",
-                    from:peerId.value,
-                    text:message.value,
-                    time:Date.now()
-                })
-            }
-        );
+    let res=await github(
+      `https://api.github.com/gists/${gist}/comments`
+    );
 
-        message.value="";
+    for(let c of res){
 
-    }catch(e){
+      let data;
+      try{
+        data=JSON.parse(c.body);
+      }catch(e){
+        continue;
+      }
 
-        log(
-            "发送失败: "
-            + e
-        );
+      if(!data.msgId)continue;
+
+      if(processed.has(data.msgId))continue;
+      processed.add(data.msgId);
+
+      switch(data.type){
+
+        case "join":
+          if(isHost){
+            handleJoin(data);
+          }
+          break;
+
+        case "offer":
+          if(data.to===myId)
+            handleOffer(data);
+          break;
+
+        case "answer":
+          if(data.to===myId)
+            handleAnswer(data);
+          break;
+
+        case "candidate":
+          if(data.to===myId)
+            handleCandidate(data);
+          break;
+      }
     }
+
+  },2000);
 }
 
-function startPolling(){
+async function handleJoin(msg){
 
-    if(polling)
-        clearInterval(polling);
+  remoteId=msg.from;
 
-    status.innerHTML="轮询中";
-    status.className="green";
+  log("收到JOIN:"+remoteId);
 
-    loadComments();
+  setupPC();
 
-    polling=
-        setInterval(
-            loadComments,
-            3000
-        );
+  dc=pc.createDataChannel("chat");
+  bindDC();
+
+  let offer=await pc.createOffer();
+  await pc.setLocalDescription(offer);
+
+  sendSignal({
+    msgId:crypto.randomUUID(),
+    type:"offer",
+    from:myId,
+    to:remoteId,
+    sdp:pc.localDescription
+  });
+
+  log("Offer已发送");
 }
 
-async function loadComments(){
+async function handleOffer(msg){
 
-    if(!gistId.value)
-        return;
+  remoteId=msg.from;
 
-    try{
+  setupPC();
 
-        const comments=
-            await github(
-                `https://api.github.com/gists/${gistId.value}/comments`
-            );
+  await pc.setRemoteDescription(
+    msg.sdp
+  );
 
-        comments.forEach(c=>{
+  let answer=await pc.createAnswer();
+  await pc.setLocalDescription(answer);
 
-            if(c.id<=lastCommentId)
-                return;
+  sendSignal({
+    msgId:crypto.randomUUID(),
+    type:"answer",
+    from:myId,
+    to:remoteId,
+    sdp:pc.localDescription
+  });
 
-            lastCommentId=
-                c.id;
+  log("Answer已发送");
+}
 
-            document
-                .getElementById(
-                    "lastId"
-                )
-                .innerText=
-                lastCommentId;
+async function handleAnswer(msg){
 
-            try{
+  await pc.setRemoteDescription(msg.sdp);
 
-                const data=
-                    JSON.parse(
-                        c.body
-                    );
+  log("Answer已应用");
+}
 
-                log(
-                    "["+
-                    data.type+
-                    "] "
-                    +
-                    data.from
-                    +
-                    " : "
-                    +
-                    (
-                        data.text
-                        || ""
-                    )
-                );
+async function handleCandidate(msg){
 
-            }catch{
+  try{
+    await pc.addIceCandidate(msg.candidate);
+  }catch(e){
+    pendingIce.push(msg.candidate);
+  }
+}
 
-                log(
-                    c.body
-                );
-            }
-        });
+function sendChat(){
 
-    }catch(e){
+  let msg="hello "+Date.now();
 
-        log(
-            "轮询失败: "
-            + e
-        );
-    }
+  if(dc&&dc.readyState==="open"){
+    dc.send(msg);
+    log("[ME] "+msg);
+  }else{
+    log("未连接");
+  }
 }
 
 </script>
-
 </body>
 </html>
