@@ -4,85 +4,33 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<title>你好，陌生人 GGSP v2.2 Mesh Network</title>
+<title>GGSP v2.2 MVP</title>
 
 <link rel="stylesheet" href="css/style.css">
 </head>
 
 <body>
 
-<h2>🌐 GGSP v2.2 Mesh Network</h2>
+<h2>GGSP v2.2 MVP</h2>
 
-<!-- ========================
-控制区
-======================== -->
-<div class="panel">
+<input id="gistId" placeholder="Gist ID">
 
-    <input id="gistId" placeholder="输入 Gist ID">
+<br><br>
 
-    <br><br>
+<input id="msg" placeholder="消息">
+<button id="btnSend">发送</button>
 
-    <button id="btnCreate">创建房间</button>
-    <button id="btnJoin">加入房间</button>
+<br><br>
 
-    <br><br>
+<button id="btnCreate">创建房间</button>
+<button id="btnJoin">加入房间</button>
 
-    <input id="msg" placeholder="输入消息">
-    <button id="btnSend">发送</button>
-    <button id="btnClear">清空日志</button>
+<button id="btnClear">清空</button>
 
-</div>
-
-<hr>
-
-<!-- ========================
-状态区
-======================== -->
-<div class="panel">
-
-    <h3>📡 Mesh 状态</h3>
-
-    <div id="peerList">暂无节点</div>
-
-</div>
-
-<hr>
-
-<!-- ========================
-二维码区（预留）
-======================== -->
-<div class="panel">
-
-    <h3>📱 房间二维码</h3>
-
-    <div id="qrcode"></div>
-
-</div>
-
-<hr>
-
-<!-- ========================
-日志区
-======================== -->
-<div class="panel">
-
-    <h3>🪵 Log</h3>
-
-    <pre id="log"></pre>
-
-</div>
-
-<!-- ========================
-脚本
-======================== -->
+<pre id="log"></pre>
 
 <script src="js/github.js"></script>
-<script src="js/config.js"></script>
-
 <script src="js/signal.js"></script>
-<script src="js/room.js"></script>
-<script src="js/peer.js"></script>
 <script src="js/app.js"></script>
 
 </body>
