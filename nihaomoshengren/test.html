@@ -1,218 +1,376 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>GitHub Gist API</title>
+<title>Gist Signal v3.0-a</title>
+
 <style>
 body{
     font-family:Arial;
-    padding:20px;
+    padding:15px;
 }
+
 input,button{
-    margin:5px;
     padding:8px;
+    margin:3px;
 }
+
 input{
-    width:500px;
+    width:100%;
+    box-sizing:border-box;
 }
-pre{
-    background:#f0f0f0;
+
+#log{
+    height:300px;
+    overflow:auto;
+    border:1px solid #ccc;
     padding:10px;
+    margin-top:10px;
+    background:#fafafa;
     white-space:pre-wrap;
+}
+
+.green{
+    color:green;
+    font-weight:bold;
+}
+
+.red{
+    color:red;
+    font-weight:bold;
 }
 </style>
 </head>
 <body>
 
-<h2>GitHub Gist API 测试</h2>
+<h2>Gist Signal v3.0-a</h2>
 
-<div>
-    <input id="token" type="password"
-           placeholder="GitHub Token">
-</div>
+Token
 
-<div>
-    <input id="gistId"
-           placeholder="Gist ID">
-</div>
+<input id="token" type="password">
 
-<div>
-    <button onclick="createGist()">创建</button>
-    <button onclick="readGist()">读取</button>
-    <button onclick="updateGist()">更新</button>
-    <button onclick="deleteGist()">删除</button>
-</div>
+<button onclick="saveToken()">
+保存Token
+</button>
 
-<pre id="result"></pre>
+<hr>
+
+房间名
+
+<input id="roomName" value="TestRoom">
+
+<button onclick="createRoom()">
+创建房间
+</button>
+
+<hr>
+
+Gist ID
+
+<input id="gistId">
+
+<button onclick="joinRoom()">
+加入房间
+</button>
+
+<hr>
+
+我的ID
+
+<input id="peerId">
+
+<button onclick="generatePeerId()">
+生成ID
+</button>
+
+<hr>
+
+消息
+
+<input id="message">
+
+<button onclick="sendChat()">
+发送评论
+</button>
+
+<hr>
+
+状态:
+
+<span id="status" class="red">
+未连接
+</span>
+
+<hr>
+
+最新评论ID:
+
+<span id="lastId">
+0
+</span>
+
+<div id="log"></div>
 
 <script>
 
-function log(msg){
-    document.getElementById("result").textContent =
-        typeof msg === "string"
-        ? msg
-        : JSON.stringify(msg,null,2);
+let polling=null;
+let lastCommentId=0;
+
+window.onload=()=>{
+
+    token.value=
+        localStorage.getItem("github_token")||"";
+
+    peerId.value=
+        "peer_"+Math.random()
+            .toString(36)
+            .substring(2,8);
+};
+
+function generatePeerId(){
+
+    peerId.value=
+        "peer_"+Math.random()
+            .toString(36)
+            .substring(2,8);
 }
 
-function getToken(){
-    return document.getElementById("token").value.trim();
-}
+function saveToken(){
 
-function getGistId(){
-    return document.getElementById("gistId").value.trim();
-}
-
-async function createGist(){
-
-    const token=getToken();
-
-    const body={
-        description:"WebRTC Offer",
-        public:false,
-        files:{
-            "offer.json":{
-                content:JSON.stringify({
-                    type:"offer",
-                    time:Date.now(),
-                    message:"hello"
-                },null,2)
-            }
-        }
-    };
-
-    const res=await fetch(
-        "https://api.github.com/gists",
-        {
-            method:"POST",
-            headers:{
-                Authorization:"token "+token,
-                Accept:"application/vnd.github+json",
-                "Content-Type":"application/json"
-            },
-            body:JSON.stringify(body)
-        }
+    localStorage.setItem(
+        "github_token",
+        token.value
     );
 
-    const json=await res.json();
+    log("Token已保存");
+}
 
-    if(res.ok){
+function log(msg){
 
-        document.getElementById("gistId").value =
-            json.id;
+    const box=
+        document.getElementById("log");
 
-        log({
-            status:"创建成功",
-            gistId:json.id,
-            url:json.html_url
+    box.innerHTML +=
+        msg + "<br>";
+
+    box.scrollTop=
+        box.scrollHeight;
+}
+
+async function github(url,method="GET",body=null){
+
+    const res=
+        await fetch(url,{
+            method,
+            headers:{
+                Authorization:
+                    "token "+token.value,
+                Accept:
+                    "application/vnd.github+json",
+                "Content-Type":
+                    "application/json"
+            },
+            body:
+                body
+                ? JSON.stringify(body)
+                : null
         });
 
-    }else{
-        log(json);
+    if(method==="DELETE")
+        return res;
+
+    return await res.json();
+}
+
+async function createRoom(){
+
+    try{
+
+        const room={
+            version:"3.0-a",
+            roomName:
+                roomName.value,
+            host:
+                peerId.value,
+            created:
+                Date.now()
+        };
+
+        const gist=
+            await github(
+                "https://api.github.com/gists",
+                "POST",
+                {
+                    public:false,
+                    files:{
+                        "room.json":{
+                            content:
+                                JSON.stringify(
+                                    room,
+                                    null,
+                                    2
+                                )
+                        }
+                    }
+                }
+            );
+
+        gistId.value=
+            gist.id;
+
+        log(
+            "房间创建成功<br>"
+            + gist.id
+        );
+
+        startPolling();
+
+    }catch(e){
+
+        log(
+            "创建失败: "
+            + e
+        );
     }
 }
 
-async function readGist(){
+async function joinRoom(){
 
-    const token=getToken();
-    const gistId=getGistId();
+    try{
 
-    const res=await fetch(
-        "https://api.github.com/gists/"+gistId,
-        {
-            headers:{
-                Authorization:"token "+token,
-                Accept:"application/vnd.github+json"
-            }
-        }
-    );
-
-    const json=await res.json();
-
-    if(res.ok){
-
-        const file=json.files["offer.json"];
-
-        if(file){
-            log(file.content);
-        }else{
-            log("offer.json不存在");
-        }
-
-    }else{
-        log(json);
-    }
-}
-
-async function updateGist(){
-
-    const token=getToken();
-    const gistId=getGistId();
-
-    const body={
-        files:{
-            "offer.json":{
-                content:JSON.stringify({
-                    type:"offer",
-                    updated:true,
+        await github(
+            `https://api.github.com/gists/${gistId.value}/comments`,
+            "POST",
+            {
+                body:JSON.stringify({
+                    type:"join",
+                    from:peerId.value,
                     time:Date.now()
-                },null,2)
+                })
             }
-        }
-    };
+        );
 
-    const res=await fetch(
-        "https://api.github.com/gists/"+gistId,
-        {
-            method:"PATCH",
-            headers:{
-                Authorization:"token "+token,
-                Accept:"application/vnd.github+json",
-                "Content-Type":"application/json"
-            },
-            body:JSON.stringify(body)
-        }
-    );
+        log("已发送join");
 
-    const json=await res.json();
+        startPolling();
 
-    if(res.ok){
-        log("更新成功");
-    }else{
-        log(json);
+    }catch(e){
+
+        log(
+            "加入失败: "
+            + e
+        );
     }
 }
 
-async function deleteGist(){
+async function sendChat(){
 
-    const token=getToken();
-    const gistId=getGistId();
+    try{
 
-    const ok=confirm("确定删除？");
-
-    if(!ok)return;
-
-    const res=await fetch(
-        "https://api.github.com/gists/"+gistId,
-        {
-            method:"DELETE",
-            headers:{
-                Authorization:"token "+token,
-                Accept:"application/vnd.github+json"
+        await github(
+            `https://api.github.com/gists/${gistId.value}/comments`,
+            "POST",
+            {
+                body:JSON.stringify({
+                    type:"chat",
+                    from:peerId.value,
+                    text:message.value,
+                    time:Date.now()
+                })
             }
-        }
-    );
+        );
 
-    if(res.status===204){
+        message.value="";
 
-        log("删除成功");
+    }catch(e){
 
-        document.getElementById("gistId").value="";
+        log(
+            "发送失败: "
+            + e
+        );
+    }
+}
 
-    }else{
+function startPolling(){
 
-        const txt=await res.text();
+    if(polling)
+        clearInterval(polling);
 
-        log(txt);
+    status.innerHTML="轮询中";
+    status.className="green";
+
+    loadComments();
+
+    polling=
+        setInterval(
+            loadComments,
+            3000
+        );
+}
+
+async function loadComments(){
+
+    if(!gistId.value)
+        return;
+
+    try{
+
+        const comments=
+            await github(
+                `https://api.github.com/gists/${gistId.value}/comments`
+            );
+
+        comments.forEach(c=>{
+
+            if(c.id<=lastCommentId)
+                return;
+
+            lastCommentId=
+                c.id;
+
+            document
+                .getElementById(
+                    "lastId"
+                )
+                .innerText=
+                lastCommentId;
+
+            try{
+
+                const data=
+                    JSON.parse(
+                        c.body
+                    );
+
+                log(
+                    "["+
+                    data.type+
+                    "] "
+                    +
+                    data.from
+                    +
+                    " : "
+                    +
+                    (
+                        data.text
+                        || ""
+                    )
+                );
+
+            }catch{
+
+                log(
+                    c.body
+                );
+            }
+        });
+
+    }catch(e){
+
+        log(
+            "轮询失败: "
+            + e
+        );
     }
 }
 
