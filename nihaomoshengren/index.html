@@ -3,36 +3,44 @@
 
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GGSP v2.2 MVP</title>
+<title>GGSP v2.2 PRO MVP</title>
 
-<link rel="stylesheet" href="css/style.css">
+<style>
+body { background:#111; color:#0f0; font-family:monospace; padding:10px; }
+input,button { padding:8px; margin:5px; }
+#log { height:300px; overflow:auto; border:1px solid #333; padding:10px; }
+</style>
 </head>
 
 <body>
 
-<h2>GGSP v2.2 MVP</h2>
+<h2>GGSP v2.2 PRO</h2>
 
-<input id="gistId" placeholder="Gist ID">
+<!-- TOKEN -->
+<input id="token" placeholder="GitHub Token">
+
+<br>
+
+<!-- ROOM -->
+<input id="gistId" placeholder="Gist ID（加入用，可空）">
+
+<br><br>
+
+<button onclick="createRoom()">创建房间</button>
+<button onclick="joinRoom()">加入房间</button>
 
 <br><br>
 
 <input id="msg" placeholder="消息">
-<button id="btnSend">发送</button>
+<button onclick="sendMsg()">发送</button>
 
 <br><br>
 
-<button id="btnCreate">创建房间</button>
-<button id="btnJoin">加入房间</button>
-
-<button id="btnClear">清空</button>
+<button onclick="clearLog()">清空</button>
 
 <pre id="log"></pre>
 
-<script src="js/github.js"></script>
-<script src="js/signal.js"></script>
-<script src="js/app.js"></script>
+<script src="app.js"></script>
 
 </body>
-
 </html>
