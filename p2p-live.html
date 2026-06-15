@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>最小 P2P 直播 Demo (WebRTC)</title>
+  <style>
+    body { font-family: sans-serif; padding: 10px; }
+    video { width: 45%; border: 1px solid #ccc; margin-right: 10px; }
+    textarea { width: 100%; height: 120px; }
+    button { margin: 5px 0; }
+    .row { display: flex; flex-wrap: wrap; align-items: flex-start; }
+  </style>
+</head>
+<body>
+  <h2>最小 P2P 直播 Demo（手动信令版）</h2>
+  <p>步骤见页面下方说明。</p>
+
+  <div class="row">
+    <div>
+      <h3>本地视频（主播/观众本机）</h3>
+      <video id="localVideo" autoplay playsinline muted></video>
+    </div>
+    <div>
+      <h3>远端视频（对方）</h3>
+      <video id="remoteVideo" autoplay playsinline></video>
+    </div>
+  </div>
+
+  <hr>
+
+  <h3>角色选择</h3>
+  <button id="btnBroadcaster">我是主播（发起方）</button>
+  <button id="btnViewer">我是观众（应答方）</button>
+  <p id="roleInfo" style="color: #c00;"></p>
+
+  <hr>
+
+  <h3>信令交换（复制粘贴）</h3>
+
+  <h4>1. 本端 SDP（发给对方）</h4>
+  <textarea id="localSdp" readonly></textarea>
+  <button id="btnCopyLocal">复制本端 SDP</button>
+
+  <h4>2. 对方 SDP（粘贴到这里）</h4>
+  <textarea id="remoteSdp"></textarea>
+  <button id="btnSetRemote">设置对方 SDP</button>
+
+  <script>
+    let pc = null;
+    let localStream = null;
+    let role = null; // 'broadcaster' or 'viewer'
+
+    const $ = id => document.getElementById(id);
+
+    const config = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' } // 公共 STUN
+      ]
+    };
+
+    async function initPeerConnection() {
+      pc = new RTCPeerConnection(config);
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) return;
+        // ICE 收集完成后，输出本端 SDP
+        $('localSdp').value = JSON.stringify(pc.localDescription);
+      };
+
+      pc.ontrack = (event) => {
+        console.log('收到远端 track');
+        $('remoteVideo').srcObject = event.streams[0];
+      };
+    }
+
+    async function startLocalMedia() {
+      if (localStream) return;
+      localStream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
+      });
+      $('localVideo').srcObject = localStream;
+    }
+
+    $('btnBroadcaster').onclick = async () => {
+      role = 'broadcaster';
+      $('roleInfo').textContent = '当前角色：主播（发起方）';
+      await startLocalMedia();
+      await initPeerConnection();
+
+      // 主播把本地流加到 PeerConnection
+      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      // onicecandidate 结束后会自动把 SDP 填到 textarea
+    };
+
+    $('btnViewer').onclick = async () => {
+      role = 'viewer';
+      $('roleInfo').textContent = '当前角色：观众（应答方）';
+      await startLocalMedia(); // 观众也可以采集本地流（可选）
+      await initPeerConnection();
+
+      // 如果你希望观众也把自己的流发给主播，可以取消下面注释
+      // localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+    };
+
+    $('btnSetRemote').onclick = async () => {
+      if (!pc) {
+        alert('请先选择角色并初始化连接（点“我是主播”或“我是观众”）');
+        return;
+      }
+      const remoteSdpText = $('remoteSdp').value.trim();
+      if (!remoteSdpText) {
+        alert('请先粘贴对方 SDP');
+        return;
+      }
+      const remoteDesc = new RTCSessionDescription(JSON.parse(remoteSdpText));
+      await pc.setRemoteDescription(remoteDesc);
+
+      // 如果我是观众（应答方），收到对方 offer 后要创建 answer
+      if (role === 'viewer' && remoteDesc.type === 'offer') {
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        // onicecandidate 结束后会自动把 SDP 填到 textarea
+      }
+    };
+
+    $('btnCopyLocal').onclick = () => {
+      const text = $('localSdp').value;
+      if (!text) {
+        alert('本端 SDP 为空，请先完成 offer/answer 流程。');
+        return;
+      }
+      navigator.clipboard.writeText(text).then(() => {
+        alert('已复制到剪贴板');
+      });
+    };
+  </script>
+</body>
+</html>
