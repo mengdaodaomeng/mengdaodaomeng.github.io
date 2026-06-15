@@ -1,108 +1,151 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <title>P2P 直播 Demo（修正版）</title>
-  <style>
-    body { font-family: sans-serif; padding: 10px; }
-    video { width: 45%; border: 1px solid #ccc; margin-right: 10px; }
-    textarea { width: 100%; height: 120px; }
-    button { margin: 5px 0; }
-    #log { white-space: pre-line; background: #eee; padding: 10px; height: 150px; overflow-y: auto; }
-  </style>
+<meta charset="utf-8">
+<title>P2P 多主播直播房间（原型）</title>
+<style>
+  body { font-family: sans-serif; }
+  video { width: 200px; margin: 5px; border: 1px solid #ccc; }
+  #videos { display: flex; flex-wrap: wrap; }
+  #chat { border: 1px solid #ccc; height: 200px; overflow-y: auto; padding: 5px; }
+</style>
 </head>
 <body>
-  <h2>P2P 直播 Demo（修正版）</h2>
 
-  <div>
-    <video id="localVideo" autoplay playsinline muted></video>
-    <video id="remoteVideo" autoplay playsinline></video>
-  </div>
+<h2>P2P 多主播直播房间（原型）</h2>
 
-  <button id="btnBroadcaster">我是主播</button>
-  <button id="btnViewer">我是观众</button>
-  <p id="roleInfo"></p>
+<button id="btnStart">加入房间</button>
+<button id="btnSendOffer">生成 Offer</button>
+<button id="btnSetRemote">设置对方 SDP</button>
 
-  <h3>本端 SDP</h3>
-  <textarea id="localSdp" readonly></textarea>
+<h3>本端 SDP</h3>
+<textarea id="localSdp" style="width:100%;height:120px;"></textarea>
 
-  <h3>对方 SDP</h3>
-  <textarea id="remoteSdp"></textarea>
-  <button id="btnSetRemote">设置对方 SDP</button>
+<h3>对方 SDP</h3>
+<textarea id="remoteSdp" style="width:100%;height:120px;"></textarea>
 
-  <h3>日志输出</h3>
-  <div id="log"></div>
+<hr>
+
+<h3>视频区（所有主播）</h3>
+<div id="videos"></div>
+
+<hr>
+
+<h3>聊天区</h3>
+<div id="chat"></div>
+<input id="msg" placeholder="输入消息">
+<button id="sendText">发送文字</button>
+<input type="file" id="imgInput">
+<button id="sendImg">发送图片</button>
 
 <script>
-let pc, localStream, role;
+let peers = {};          // 所有连接的 Peer
+let localStream = null;  // 本地摄像头
+let myId = "peer-" + Math.random().toString(36).slice(2);
 
 function log(msg) {
-  document.getElementById("log").textContent += msg + "\n";
+  let div = document.getElementById("chat");
+  div.innerHTML += msg + "<br>";
+  div.scrollTop = div.scrollHeight;
 }
 
 async function startLocalMedia() {
-  log("请求摄像头权限...");
   localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-  document.getElementById("localVideo").srcObject = localStream;
-  log("摄像头已启动");
+  let v = document.createElement("video");
+  v.srcObject = localStream;
+  v.autoplay = true;
+  v.muted = true;
+  document.getElementById("videos").appendChild(v);
 }
 
-async function initPC() {
-  pc = new RTCPeerConnection({
+function createPeerConnection(peerId) {
+  let pc = new RTCPeerConnection({
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
   });
 
+  // 添加本地流
+  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+  // DataChannel（聊天）
+  let dc = pc.createDataChannel("chat");
+  dc.onmessage = e => handleChat(JSON.parse(e.data));
+
+  pc.ondatachannel = e => {
+    e.channel.onmessage = ev => handleChat(JSON.parse(ev.data));
+  };
+
+  // 远端视频
+  pc.ontrack = e => {
+    let v = document.createElement("video");
+    v.srcObject = e.streams[0];
+    v.autoplay = true;
+    document.getElementById("videos").appendChild(v);
+  };
+
+  // ICE 完成后输出 SDP
   pc.onicecandidate = e => {
     if (!e.candidate) {
       document.getElementById("localSdp").value = JSON.stringify(pc.localDescription);
-      log("ICE 收集完成，本端 SDP 已生成");
     }
   };
 
-  pc.ontrack = e => {
-    log("收到远端视频流");
-    document.getElementById("remoteVideo").srcObject = e.streams[0];
-  };
+  peers[peerId] = { pc, dc };
+  return pc;
 }
 
-document.getElementById("btnBroadcaster").onclick = async () => {
-  role = "broadcaster";
-  document.getElementById("roleInfo").textContent = "当前角色：主播";
-  log("角色：主播");
+function handleChat(msg) {
+  if (msg.type === "text") {
+    log(msg.from + ": " + msg.text);
+  } else if (msg.type === "img") {
+    log(msg.from + ": <img src='" + msg.data + "' width='100'>");
+  }
+}
 
+document.getElementById("btnStart").onclick = async () => {
   await startLocalMedia();
-  await initPC();
+  alert("你已加入房间，现在可以与其他人交换 SDP");
+};
 
-  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-
-  log("创建 offer...");
-  const offer = await pc.createOffer();
+document.getElementById("btnSendOffer").onclick = async () => {
+  let peerId = prompt("请输入对方的 Peer ID");
+  let pc = createPeerConnection(peerId);
+  let offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
 };
 
-document.getElementById("btnViewer").onclick = async () => {
-  role = "viewer";
-  document.getElementById("roleInfo").textContent = "当前角色：观众";
-  log("角色：观众");
-
-  await startLocalMedia();
-  await initPC();
-};
-
 document.getElementById("btnSetRemote").onclick = async () => {
-  const text = document.getElementById("remoteSdp").value.trim();
-  if (!text) return alert("请粘贴对方 SDP");
+  let peerId = prompt("请输入对方的 Peer ID");
+  let sdp = JSON.parse(document.getElementById("remoteSdp").value);
+  let pc = peers[peerId] || createPeerConnection(peerId);
 
-  log("设置对方 SDP...");
-  const remote = new RTCSessionDescription(JSON.parse(text));
-  await pc.setRemoteDescription(remote);
+  await pc.setRemoteDescription(sdp);
 
-  if (role === "viewer" && remote.type === "offer") {
-    log("收到 offer，创建 answer...");
-    const answer = await pc.createAnswer();
+  if (sdp.type === "offer") {
+    let answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
   }
 };
+
+document.getElementById("sendText").onclick = () => {
+  let text = document.getElementById("msg").value;
+  for (let id in peers) {
+    peers[id].dc.send(JSON.stringify({ type: "text", from: myId, text }));
+  }
+  log("我: " + text);
+};
+
+document.getElementById("sendImg").onclick = () => {
+  let file = document.getElementById("imgInput").files[0];
+  let reader = new FileReader();
+  reader.onload = () => {
+    for (let id in peers) {
+      peers[id].dc.send(JSON.stringify({ type: "img", from: myId, data: reader.result }));
+    }
+    log("我: <img src='" + reader.result + "' width='100'>");
+  };
+  reader.readAsDataURL(file);
+};
 </script>
+
 </body>
 </html>
